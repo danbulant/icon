@@ -1,0 +1,339 @@
+use crate::theme::ThemeParseError::MissingRequiredAttribute;
+use freedesktop_entry_parser::low_level::{EntryIter, SectionBytes};
+use std::borrow::Cow;
+use std::path::{Path, PathBuf};
+
+pub type OwnedTheme = Theme<'static>;
+pub type OwnedThemeIndex = ThemeIndex<'static>;
+pub type OwnedDirectoryIndex = DirectoryIndex<'static>;
+
+pub struct Theme<'a> {
+    pub internal_name: String,
+    pub base_dirs: Vec<Cow<'a, Path>>,
+    pub index_location: PathBuf,
+    pub index: ThemeIndex<'a>,
+    // additional groups?
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ThemeParseError {
+    #[error("missing Icon Theme index or section")]
+    NotAnIconTheme,
+    #[error("missing attribute `{0}`")]
+    MissingRequiredAttribute(&'static str),
+    #[error("the input wasn't in utf-8")]
+    NotUtf8(#[from] std::str::Utf8Error),
+    #[error("a bool was expected but failed to parse")]
+    ParseBoolError(#[from] std::str::ParseBoolError),
+    #[error("a number was expected but failed to parse")]
+    ParseNumError(#[from] std::num::ParseIntError),
+    #[error("A directory type was invalid")]
+    InvalidDirectoryType,
+    #[error("invalid format for a freedesktop entry file")]
+    ParseError(#[from] freedesktop_entry_parser::ParseError),
+}
+
+impl Theme<'_> {
+    pub fn new_from_folders(internal_name: String, folders: Vec<PathBuf>) -> std::io::Result<Self> {
+        let index_location = folders
+            .iter()
+            .map(|f| f.join("index.theme"))
+            .filter(|index_path| index_path.exists())
+            .next()
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::Other, ThemeParseError::NotAnIconTheme)
+            })?;
+
+        let index = ThemeIndex::parse_from_file(index_location.as_path())?;
+
+        Ok(Self {
+            internal_name,
+            base_dirs: folders.into_iter().map(Into::into).collect(),
+            index_location,
+            index,
+        })
+    }
+}
+
+fn theme_into_owned(theme: Theme) -> OwnedTheme {
+    let base_dirs = theme
+        .base_dirs
+        .into_iter()
+        .map(Cow::into_owned)
+        .map(Into::into)
+        .collect();
+    let index = theme.index.into_owned();
+
+    OwnedTheme {
+        base_dirs,
+        index,
+        ..theme
+    }
+}
+
+pub struct ThemeIndex<'a> {
+    pub name: Cow<'a, str>,
+    pub comment: Cow<'a, str>,
+    pub inherits: Vec<Cow<'a, str>>,
+    pub directories: Vec<DirectoryIndex<'a>>,
+    pub hidden: bool,
+    pub example: Option<Cow<'a, str>>,
+}
+
+impl<'a> ThemeIndex<'a> {
+    pub fn parse_from_file(path: &Path) -> std::io::Result<OwnedThemeIndex> {
+        let bytes = std::fs::read(path)?;
+        let index = ThemeIndex::parse(&bytes)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+        Ok(index.into_owned())
+    }
+
+    pub fn parse(bytes: &'a [u8]) -> Result<Self, ThemeParseError> {
+        let mut entry: EntryIter<'a> = freedesktop_entry_parser::low_level::parse_entry(bytes);
+
+        let icon_theme_section: SectionBytes<'a> =
+            entry.next().ok_or(ThemeParseError::NotAnIconTheme)??;
+        let name: &'a str = find_attr_req(&icon_theme_section, "Name")?;
+        let comment = find_attr_req(&icon_theme_section, "Comment")?;
+        // If no theme is specified, implementations are required to add the "hicolor" theme to the inheritance tree.
+        let inherits = find_attr(&icon_theme_section, "Inherits")?
+            .unwrap_or("hicolor")
+            .split(',') // `inherits` is a comma-separated string list
+            .map(Into::into)
+            .collect::<Vec<_>>();
+        let directories = find_attr_req(&icon_theme_section, "Directories")?
+            .split(',')
+            .collect::<Vec<_>>();
+        let scaled_directories = find_attr(&icon_theme_section, "ScaledDirectories")?
+            .map(|s| s.split(',').collect::<Vec<_>>());
+        let hidden = find_attr(&icon_theme_section, "Hidden")?
+            .map(|s| s.parse())
+            .transpose()?
+            .unwrap_or(false);
+        let example = find_attr(&icon_theme_section, "Example")?;
+
+        // all other sections should describe a directory in the directory list
+        let directories = entry
+            .filter_map(Result::ok)
+            .filter_map(|section| {
+                let title = str::from_utf8(section.title).ok()?;
+
+                let is_scaled_dir = scaled_directories
+                    .as_ref()
+                    .map(|d| d.contains(&title))
+                    .unwrap_or(false);
+
+                if !directories.contains(&title) && !is_scaled_dir {
+                    // section isn't a listed directory! ignore!
+                    return None;
+                }
+
+                let mut index = DirectoryIndex::parse(section);
+
+                if is_scaled_dir {
+                    if let Ok(index) = &mut index {
+                        index.is_scaled_dir = true;
+                    }
+                }
+
+                Some(index)
+            })
+            .collect::<Result<Vec<_>, ThemeParseError>>()?;
+
+        Ok(Self {
+            name: name.into(),
+            comment: comment.into(),
+            inherits,
+            directories,
+            hidden,
+            example: example.map(Into::into),
+        })
+    }
+
+    pub fn into_owned(self) -> OwnedThemeIndex {
+        theme_index_into_owned(self)
+    }
+}
+
+fn theme_index_into_owned(index: ThemeIndex) -> OwnedThemeIndex {
+    let name = index.name.into_owned().into();
+    let comment = index.comment.into_owned().into();
+    let inherits = index
+        .inherits
+        .into_iter()
+        .map(Cow::into_owned)
+        .map(Into::into)
+        .collect();
+    let directories = index
+        .directories
+        .into_iter()
+        .map(|x| x.into_owned())
+        .collect();
+    let example = index.example.map(Cow::into_owned).map(Into::into);
+
+    OwnedThemeIndex {
+        name,
+        comment,
+        inherits,
+        directories,
+        example,
+        ..index
+    }
+}
+
+pub struct DirectoryIndex<'a> {
+    pub directory_name: Cow<'a, str>,
+    pub is_scaled_dir: bool,
+    pub size: u32,
+    pub scale: u32,
+    pub context: Option<Cow<'a, str>>,
+    pub directory_type: DirectoryType,
+    pub max_size: u32,
+    pub min_size: u32,
+    pub threshold: u32,
+    // pub additional_values: HashMap<Cow<'a, str>, Cow<'a, str>>,
+}
+
+impl<'a> DirectoryIndex<'a> {
+    fn parse(section: SectionBytes<'a>) -> Result<Self, ThemeParseError> {
+        let dir_name = str::from_utf8(section.title)?;
+        let size: u32 = find_attr_req(&section, "Size")?.parse()?;
+        let scale: u32 = find_attr(&section, "Scale")?
+            .map(|s| s.parse())
+            .transpose()?
+            .unwrap_or(1);
+        let context = find_attr(&section, "Context")?;
+        // Valid types are Fixed, Scalable and Threshold.
+        // The type decides what other keys in the section are used.
+        // If not specified, the default is Threshold.
+        let directory_type = find_attr(&section, "Type")?
+            .map(|s| s.try_into())
+            .transpose()
+            .map_err(|_| ThemeParseError::InvalidDirectoryType)?
+            .unwrap_or(DirectoryType::Threshold);
+        let max_size = find_attr(&section, "MaxSize")?
+            .map(|s| s.parse())
+            .transpose()?
+            .unwrap_or(size);
+        let min_size = find_attr(&section, "MinSize")?
+            .map(|s| s.parse())
+            .transpose()?
+            .unwrap_or(size);
+        let threshold = find_attr(&section, "Threshold")?
+            .map(|s| s.parse())
+            .transpose()?
+            .unwrap_or(2);
+
+        Ok(Self {
+            directory_name: dir_name.into(),
+            is_scaled_dir: scale != 1,
+            size,
+            scale,
+            context: context.map(Into::into),
+            directory_type,
+            max_size,
+            min_size,
+            threshold,
+        })
+    }
+
+    pub fn into_owned(self) -> OwnedDirectoryIndex {
+        dir_index_into_owned(self)
+    }
+}
+
+fn dir_index_into_owned(index: DirectoryIndex) -> OwnedDirectoryIndex {
+    let directory_name: Cow<'static, str> = index.directory_name.into_owned().into();
+    let context: Option<Cow<'static, str>> = index.context.map(|c| c.into_owned().into());
+    // let additional_values: HashMap<Cow<'static, str>, Cow<'static, str>> = index
+    //     .additional_values
+    //     .into_iter()
+    //     .map(|(k, v)| (Cow::Owned(k.into_owned()), Cow::Owned(v.into_owned())))
+    //     .collect();
+
+    OwnedDirectoryIndex {
+        directory_name,
+        context,
+        // additional_values,
+        ..index
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum DirectoryType {
+    Fixed,
+    Scalable,
+    Threshold,
+}
+
+impl TryFrom<&str> for DirectoryType {
+    type Error = ();
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let value = match value {
+            "Fixed" => DirectoryType::Fixed,
+            "Scalable" => DirectoryType::Scalable,
+            "Threshold" => DirectoryType::Threshold,
+            _ => return Err(()),
+        };
+
+        Ok(value)
+    }
+}
+
+fn find_attr<'a>(
+    section: &SectionBytes<'a>,
+    name: &str,
+) -> Result<Option<&'a str>, std::str::Utf8Error> {
+    section
+        .attrs
+        .iter()
+        .find(|attr| attr.name == name.as_bytes() && attr.param.is_none())
+        .map(|attr| str::from_utf8(attr.value))
+        .transpose()
+}
+
+fn find_attr_req<'a>(
+    section: &SectionBytes<'a>,
+    name: &'static str,
+) -> Result<&'a str, ThemeParseError> {
+    find_attr(section, name)?.ok_or(MissingRequiredAttribute(name))
+}
+
+#[cfg(test)]
+mod test {
+    use crate::theme::{DirectoryType, ThemeIndex};
+    use std::error::Error;
+
+    #[test]
+    fn test_parse_example_theme() -> Result<(), Box<dyn Error>> {
+        static EXAMPLE: &'static str = include_str!("../resources/example.index.theme");
+
+        let index = ThemeIndex::parse(EXAMPLE.as_bytes())?;
+
+        assert_eq!(index.name, "Birch");
+        assert_eq!(index.comment, "Icon theme with a wooden look");
+        assert_eq!(index.inherits, vec!["wood", "default"]);
+
+        let directories = index.directories;
+
+        assert_eq!(directories.len(), 7);
+
+        let first_dir_index = &directories[0];
+        assert_eq!(first_dir_index.directory_name, "scalable/apps");
+        assert_eq!(first_dir_index.is_scaled_dir, false);
+        assert_eq!(first_dir_index.size, 48);
+        assert_eq!(first_dir_index.scale, 1);
+        assert_eq!(first_dir_index.context.as_deref(), Some("Applications"));
+        assert_eq!(first_dir_index.directory_type, DirectoryType::Scalable);
+        assert_eq!(first_dir_index.max_size, 256);
+        assert_eq!(first_dir_index.min_size, 1);
+        assert_eq!(first_dir_index.threshold, 2);
+
+        assert_eq!(index.hidden, false);
+        assert_eq!(index.example, None);
+
+        Ok(())
+    }
+}
