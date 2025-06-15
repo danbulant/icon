@@ -38,11 +38,8 @@ impl Theme<'_> {
         let index_location = folders
             .iter()
             .map(|f| f.join("index.theme"))
-            .filter(|index_path| index_path.exists())
-            .next()
-            .ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::Other, ThemeParseError::NotAnIconTheme)
-            })?;
+            .find(|index_path| index_path.exists())
+            .ok_or_else(|| std::io::Error::other(ThemeParseError::NotAnIconTheme))?;
 
         let index = ThemeIndex::parse_from_file(index_location.as_path())?;
 
@@ -83,8 +80,7 @@ pub struct ThemeIndex<'a> {
 impl<'a> ThemeIndex<'a> {
     pub fn parse_from_file(path: &Path) -> std::io::Result<OwnedThemeIndex> {
         let bytes = std::fs::read(path)?;
-        let index = ThemeIndex::parse(&bytes)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let index = ThemeIndex::parse(&bytes).map_err(std::io::Error::other)?;
 
         Ok(index.into_owned())
     }

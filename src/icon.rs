@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
 pub struct IconFile {
     pub path: PathBuf,
-    pub file_type: FileType
+    pub file_type: FileType,
 }
 
 impl IconFile {
@@ -15,7 +15,6 @@ impl IconFile {
             file_type,
         })
     }
-    
 }
 
 #[derive(Debug, Copy, Clone)]
