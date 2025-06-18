@@ -234,6 +234,53 @@ impl<'a> DirectoryIndex<'a> {
         })
     }
 
+    fn size_distance(&self, icon_size: u32, icon_scale: u32) -> u32 {
+        let size = icon_size * icon_scale;
+
+        match self.directory_type {
+            DirectoryType::Fixed | DirectoryType::Scalable => {
+                (self.size * self.scale).abs_diff(size)
+            }
+            DirectoryType::Threshold => {
+                let lower = (self.size - self.threshold) * self.scale;
+                let higher = (self.size + self.threshold) * self.scale;
+
+                if size < lower {
+                    size.abs_diff(self.min_size * self.scale)
+                } else if size > higher {
+                    size.abs_diff(self.max_size * self.scale)
+                } else {
+                    0 // within range -> no distance!
+                }
+            }
+        }
+    }
+
+    pub fn matches_size(&self, icon_size: u32, icon_scale: u32) -> bool {
+        if self.scale != icon_scale {
+            return false;
+        }
+
+        match self.directory_type {
+            DirectoryType::Fixed => self.size == icon_size,
+            DirectoryType::Scalable => {
+                let DirectoryIndex {
+                    min_size, max_size, ..
+                } = *self;
+
+                (min_size..=max_size).contains(&icon_size)
+            }
+            DirectoryType::Threshold => {
+                let DirectoryIndex {
+                    threshold, size, ..
+                } = *self;
+
+                // The icons in this directory can be used if the size differ at most this much from the desired (unscaled) size
+                size.abs_diff(icon_size) <= threshold
+            }
+        }
+    }
+
     pub fn into_owned(self) -> OwnedDirectoryIndex {
         dir_index_into_owned(self)
     }
