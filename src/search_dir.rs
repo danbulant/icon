@@ -2,14 +2,52 @@ use crate::icon::IconFile;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Icons and icon themes are looked for in a set of directories.
+///
+/// By default, that is `$HOME/.icons`, `$XDG_DATA_DIRS/icons` and `/usr/share/pixmaps`.
+/// Applications may further add their own icon directories to this list, and users may extend or change the list.
+/// The default list may be obtained using the `Default` implementation on `SearchDirectories` or its `default` method.
+/// 
+/// To add directories to the instance, use [SearchDirectories::append].
+/// 
+/// To construct a new `SearchDirectories` from a list, use the `From` implementation or construct it by hand.
+///
+/// # Example
+/// 
+/// ```
+/// use icon::SearchDirectories;
+/// 
+/// let dirs = SearchDirectories::default();
+/// let (files, themes) = dirs.search_icons_and_theme_folders();
+/// ```
 #[derive(Debug, Clone)]
 pub struct SearchDirectories {
-    dirs: Vec<PathBuf>,
+    pub dirs: Vec<PathBuf>,
 }
 
 impl SearchDirectories {
     pub fn default() -> Self {
         <Self as Default>::default()
+    }
+
+    /// Add a list of directories to this `SearchDirectories`
+    /// 
+    /// # Example
+    /// 
+    /// ```
+    /// use icon::SearchDirectories;
+    ///    
+    /// let dirs = SearchDirectories::default().append(["/home/root/.icons"]);
+    /// ```
+    pub fn append<I, P>(mut self, directories: I) -> Self
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        let mut extra_dirs = directories.into_iter().map(Into::into).collect();
+        self.dirs.append(&mut extra_dirs);
+        
+        extra_dirs.into()
     }
 
     pub fn search_icons_and_theme_folders(&self) -> (Vec<IconFile>, HashMap<String, Vec<PathBuf>>) {
@@ -55,6 +93,7 @@ impl SearchDirectories {
     }
 }
 
+/// Anything that turns into an iterator of things that can become paths, can be turned into a `SearchDirectories`.
 impl<I, P> From<I> for SearchDirectories
 where
     I: IntoIterator<Item = P>,
@@ -99,7 +138,7 @@ mod test {
     // these tests assume certain applications are installed on the system they are ran on.
 
     #[test]
-    fn test_find_htop_icon() {
+    fn test_find_htop_icon_outside_icontheme() {
         let dirs = SearchDirectories::default();
 
         let (icons, _indexes) = dirs.search_icons_and_theme_folders();
