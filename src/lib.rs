@@ -1,5 +1,66 @@
+//! Turns out finding icons correctly on linux is kind of hard.
+//!
+//! This crate, `icon`, implements the XDG icon theme specification fully, while (hopefully) giving maximum coverage in usecases without sacrificing speed or compliance.
+//!
+//! # Quick start
+//!
+//! ```
+//! let dirs = icon::SearchDirectories::default();
+//! // TODO.
+//! ```
+//!
+//! # High level design
+//!
+//! Finding icons is a multi-stage procedure, and depending on your use case, you might want to stop
+//! doing work at any one of them.
+//! This crate is laid out to allow you to do exactly that, befitting those who need to find
+//! just one icon in one theme but also those who need a reliable cache of many icons for many themes.
+//!
+//! In general, the steps are as follows:
+//!
+//! 1.  *Finding standalone icons and themes*:
+//!
+//!     Icons are found either in icon themes, or 'standalone' (outside a theme) in XDG base directories.
+//!     While a number of directories should always be scanned for icons, the user or application is
+//!     allowed to search additional directories as it sees fit.
+//!
+//!     [SearchDirectories] handles this part, and is also the main entrypoint for `icon`.
+//!
+//! 2.  *Parsing icon themes*:
+//!
+//!     Each icon theme lives in a directory in the root of one or more of the "search directories".
+//!     The name of its directory is called the theme's _internal name_, and in it lies the theme's
+//!     definition, `index.theme`.
+//!
+//!     To find icons in a theme, its `index.theme` file must be parsed to understand the directory
+//!     structure within the theme itself.
+//!     This is handled by [Theme].
+//!
+//! 3a. *Find just one icon* (oneshot):
+//!
+//!     // TODO
+//!
+//! 3b. *Find many icons*:
+//!
+//!     // TODO
+//!
+//! # Alternative crates
+//!
+//! - [linicon](https://crates.io/crates/linicon) also implements icon finding, but:
+//!   - it does not scan "standalone" icons correctly, such as those usually found in `/usr/share/pixmaps`.
+//!   - it adopts a one-shot approach, repeating all parsing and file-finding work for each icon.
+//!   - it does not provide support for caching.
+//!   - it does not support zero-copy parsing of icon theme metadata.
+//!
+//! - [icon-loader](https://crates.io/crates/icon-loader) also implements icon finding, but:
+//!   - like `linicon`, it does not scan "standalone" icons correctly.
+//!   - it only supports a rust-native icon cache, which you cannot opt out of.
+//!   - it provides only icon loading—you cannot use it to obtain information about Icon Themes.
+
+
 mod icon;
 mod search_dir;
 mod theme;
 
 pub use search_dir::*;
+pub use theme::*;
