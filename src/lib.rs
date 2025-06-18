@@ -34,7 +34,7 @@
 //!
 //!     To find icons in a theme, its `index.theme` file must be parsed to understand the directory
 //!     structure within the theme itself.
-//!     This is handled by [Theme].
+//!     This is handled by [ThemeDescriptor].
 //!
 //! 3a. *Find just one icon* (oneshot):
 //!
@@ -60,7 +60,8 @@
 
 mod icon;
 mod search_dir;
-mod theme;
+pub mod theme;
+mod theme_graph;
 
 pub use search_dir::*;
 pub use theme::*;

@@ -3,11 +3,11 @@ use freedesktop_entry_parser::low_level::{EntryIter, SectionBytes};
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-pub type OwnedTheme = Theme<'static>;
+pub type OwnedThemeDescriptor = ThemeDescriptor<'static>;
 pub type OwnedThemeIndex = ThemeIndex<'static>;
 pub type OwnedDirectoryIndex = DirectoryIndex<'static>;
 
-pub struct Theme<'a> {
+pub struct ThemeDescriptor<'a> {
     pub internal_name: String,
     pub base_dirs: Vec<Cow<'a, Path>>,
     pub index_location: PathBuf,
@@ -33,7 +33,7 @@ pub enum ThemeParseError {
     ParseError(#[from] freedesktop_entry_parser::ParseError),
 }
 
-impl Theme<'_> {
+impl ThemeDescriptor<'_> {
     pub fn new_from_folders(internal_name: String, folders: Vec<PathBuf>) -> std::io::Result<Self> {
         let index_location = folders
             .iter()
@@ -52,7 +52,7 @@ impl Theme<'_> {
     }
 }
 
-fn theme_into_owned(theme: Theme) -> OwnedTheme {
+fn theme_into_owned(theme: ThemeDescriptor) -> OwnedThemeDescriptor {
     let base_dirs = theme
         .base_dirs
         .into_iter()
@@ -61,7 +61,7 @@ fn theme_into_owned(theme: Theme) -> OwnedTheme {
         .collect();
     let index = theme.index.into_owned();
 
-    OwnedTheme {
+    OwnedThemeDescriptor {
         base_dirs,
         index,
         ..theme
