@@ -112,8 +112,18 @@ impl IconLocations {
 
         ThemeDescriptor::new_from_folders(
             internal_name.to_string_lossy().into_owned(),
-            theme.clone()
+            theme.clone(),
         )
+    }
+
+    pub fn standalone_icon<S>(&self, icon_name: S) -> Option<&IconFile>
+    where
+        S: AsRef<OsStr>,
+    {
+        let name = icon_name.as_ref();
+        
+        self.standalone_icons.iter()
+            .find(|icon| icon.path.file_stem() == Some(name))
     }
 }
 
@@ -158,35 +168,19 @@ impl Default for SearchDirectories {
 #[cfg(test)]
 mod test {
     use crate::search_dir::SearchDirectories;
-    use crate::IconLocations;
 
     // these tests assume certain applications are installed on the system they are ran on.
 
     #[test]
-    fn test_find_htop_icon_outside_icontheme() {
-        let dirs = SearchDirectories::default();
-
-        let IconLocations {
-            standalone_icons,
-            themes_directories,
-        } = dirs.find_icon_locations();
-
-        println!("{:?}", themes_directories);
-
-        assert!(
-            standalone_icons
-                .iter()
-                .any(|i| i.path.file_name().and_then(|s| s.to_str()) == Some("htop.png"))
-        )
-    }
-    
-    #[test]
-    fn test_find_adwaita() {
+    fn test_find_standard_theme_and_icon() {
         let dirs = SearchDirectories::default();
 
         let locations = dirs.find_icon_locations();
+        
         let descriptor = locations.theme("Adwaita").unwrap();
-
         assert_eq!(descriptor.index.name, "Adwaita");
+
+        let icon = locations.standalone_icon("htop").unwrap();
+        assert_eq!(icon.path.file_name(), Some("htop.png".as_ref()))
     }
 }
