@@ -1,24 +1,26 @@
 use crate::icon::IconFile;
+use crate::theme::{ThemeDescriptor, ThemeParseError};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::ffi::{OsStr, OsString};
+use std::path::PathBuf;
 
 /// Icons and icon themes are looked for in a set of directories.
 ///
 /// By default, that is `$HOME/.icons`, `$XDG_DATA_DIRS/icons` and `/usr/share/pixmaps`.
 /// Applications may further add their own icon directories to this list, and users may extend or change the list.
 /// The default list may be obtained using the `Default` implementation on `SearchDirectories` or its `default` method.
-/// 
+///
 /// To add directories to the instance, use [SearchDirectories::append].
-/// 
+///
 /// To construct a new `SearchDirectories` from a list, use the `From` implementation or construct it by hand.
 ///
 /// # Example
-/// 
+///
 /// ```
 /// use icon::SearchDirectories;
-/// 
+///
 /// let dirs = SearchDirectories::default();
-/// let (files, themes) = dirs.search_icons_and_theme_folders();
+/// // TODO
 /// ```
 #[derive(Debug, Clone)]
 pub struct SearchDirectories {
@@ -31,12 +33,12 @@ impl SearchDirectories {
     }
 
     /// Add a list of directories to this `SearchDirectories`
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```
     /// use icon::SearchDirectories;
-    ///    
+    ///
     /// let dirs = SearchDirectories::default().append(["/home/root/.icons"]);
     /// ```
     pub fn append<I, P>(mut self, directories: I) -> Self
@@ -46,17 +48,11 @@ impl SearchDirectories {
     {
         let mut extra_dirs = directories.into_iter().map(Into::into).collect();
         self.dirs.append(&mut extra_dirs);
-        
+
         extra_dirs.into()
     }
 
-    pub fn search_icons_and_theme_folders(&self) -> (Vec<IconFile>, HashMap<String, Vec<PathBuf>>) {
-        fn theme_name_from_path(path: &Path) -> Option<&str> {
-            let theme_name = path.components().nth_back(1); // get the second-to-last component (which should be the theme name)
-
-            theme_name?.as_os_str().to_str()
-        }
-
+    pub fn find_icon_locations(&self) -> IconLocations {
         // "Each theme is stored as subdirectories of the base directories"
 
         let (files, dirs) = self
@@ -79,17 +75,45 @@ impl SearchDirectories {
         // searching the base directories in order is used"
 
         // For each theme name, create a list of directories where it may be found:
-        let mut theme_folders: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        let mut themes_directories: HashMap<OsString, Vec<PathBuf>> = HashMap::new();
         for (_, dir) in dirs {
-            let theme_name = dir.file_name().to_string_lossy().into_owned();
+            let theme_name = dir.file_name();
 
-            theme_folders
+            themes_directories
                 .entry(theme_name)
                 .or_default()
                 .push(dir.path());
         }
 
-        (files, theme_folders)
+        IconLocations {
+            standalone_icons: files,
+            themes_directories,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct IconLocations {
+    pub standalone_icons: Vec<IconFile>,
+    pub themes_directories: HashMap<OsString, Vec<PathBuf>>,
+}
+
+impl IconLocations {
+    pub fn theme<S>(&self, internal_name: S) -> std::io::Result<ThemeDescriptor<'_>>
+    where
+        S: AsRef<OsStr>,
+    {
+        let internal_name = internal_name.as_ref();
+
+        let theme = self
+            .themes_directories
+            .get(internal_name)
+            .ok_or_else(|| std::io::Error::other(ThemeParseError::NotAnIconTheme))?;
+
+        ThemeDescriptor::new_from_folders(
+            internal_name.to_string_lossy().into_owned(),
+            theme.clone()
+        )
     }
 }
 
@@ -134,6 +158,7 @@ impl Default for SearchDirectories {
 #[cfg(test)]
 mod test {
     use crate::search_dir::SearchDirectories;
+    use crate::IconLocations;
 
     // these tests assume certain applications are installed on the system they are ran on.
 
@@ -141,12 +166,27 @@ mod test {
     fn test_find_htop_icon_outside_icontheme() {
         let dirs = SearchDirectories::default();
 
-        let (icons, _indexes) = dirs.search_icons_and_theme_folders();
+        let IconLocations {
+            standalone_icons,
+            themes_directories,
+        } = dirs.find_icon_locations();
+
+        println!("{:?}", themes_directories);
 
         assert!(
-            icons
+            standalone_icons
                 .iter()
                 .any(|i| i.path.file_name().and_then(|s| s.to_str()) == Some("htop.png"))
         )
+    }
+    
+    #[test]
+    fn test_find_adwaita() {
+        let dirs = SearchDirectories::default();
+
+        let locations = dirs.find_icon_locations();
+        let descriptor = locations.theme("Adwaita").unwrap();
+
+        assert_eq!(descriptor.index.name, "Adwaita");
     }
 }

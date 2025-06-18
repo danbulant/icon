@@ -61,7 +61,5 @@
 mod icon;
 mod search_dir;
 pub mod theme;
-mod theme_graph;
 
 pub use search_dir::*;
-pub use theme::*;

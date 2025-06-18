@@ -9,7 +9,7 @@ pub type OwnedDirectoryIndex = DirectoryIndex<'static>;
 
 pub struct ThemeDescriptor<'a> {
     pub internal_name: String,
-    pub base_dirs: Vec<Cow<'a, Path>>,
+    pub base_dirs: Vec<PathBuf>,
     pub index_location: PathBuf,
     pub index: ThemeIndex<'a>,
     // additional groups?
@@ -45,20 +45,19 @@ impl ThemeDescriptor<'_> {
 
         Ok(Self {
             internal_name,
-            base_dirs: folders.into_iter().map(Into::into).collect(),
+            base_dirs: folders,
             index_location,
             index,
         })
     }
+    
+    pub fn into_owned(self) -> OwnedThemeDescriptor {
+        theme_into_owned(self)
+    }
 }
 
 fn theme_into_owned(theme: ThemeDescriptor) -> OwnedThemeDescriptor {
-    let base_dirs = theme
-        .base_dirs
-        .into_iter()
-        .map(Cow::into_owned)
-        .map(Into::into)
-        .collect();
+    let base_dirs = theme.base_dirs;
     let index = theme.index.into_owned();
 
     OwnedThemeDescriptor {
