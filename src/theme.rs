@@ -1,32 +1,26 @@
 use crate::icon::IconFile;
 use crate::theme::ThemeParseError::MissingRequiredAttribute;
 use freedesktop_entry_parser::low_level::{EntryIter, SectionBytes};
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub type OwnedIcons = Icons<'static>;
-pub type OwnedThemeDescriptor = ThemeDescriptor<'static>;
-pub type OwnedThemeIndex = ThemeIndex<'static>;
-pub type OwnedDirectoryIndex = DirectoryIndex<'static>;
-
-pub struct Icons<'a> {
+pub struct Icons {
     pub standalone_icons: Vec<IconFile>,
-    pub themes: HashMap<OsString, Arc<Theme<'a>>>,
+    pub themes: HashMap<OsString, Arc<Theme>>,
 }
 
-pub struct Theme<'a> {
-    pub description: ThemeDescriptor<'a>,
-    pub parents: Vec<Arc<Theme<'a>>>,
+pub struct Theme {
+    pub description: ThemeDescriptor,
+    pub parents: Vec<Arc<Theme>>,
 }
 
-pub struct ThemeDescriptor<'a> {
+pub struct ThemeDescriptor {
     pub internal_name: String,
     pub base_dirs: Vec<PathBuf>,
     pub index_location: PathBuf,
-    pub index: ThemeIndex<'a>,
+    pub index: ThemeIndex,
     // additional groups?
 }
 
@@ -48,7 +42,7 @@ pub enum ThemeParseError {
     ParseError(#[from] freedesktop_entry_parser::ParseError),
 }
 
-impl ThemeDescriptor<'_> {
+impl ThemeDescriptor {
     pub fn new_from_folders(internal_name: String, folders: Vec<PathBuf>) -> std::io::Result<Self> {
         let index_location = folders
             .iter()
@@ -65,52 +59,36 @@ impl ThemeDescriptor<'_> {
             index,
         })
     }
-
-    pub fn into_owned(self) -> OwnedThemeDescriptor {
-        theme_into_owned(self)
-    }
 }
 
-fn theme_into_owned(theme: ThemeDescriptor) -> OwnedThemeDescriptor {
-    let base_dirs = theme.base_dirs;
-    let index = theme.index.into_owned();
-
-    OwnedThemeDescriptor {
-        base_dirs,
-        index,
-        ..theme
-    }
-}
-
-pub struct ThemeIndex<'a> {
-    pub name: Cow<'a, str>,
-    pub comment: Cow<'a, str>,
-    pub inherits: Vec<Cow<'a, str>>,
-    pub directories: Vec<DirectoryIndex<'a>>,
+pub struct ThemeIndex {
+    pub name: String,
+    pub comment: String,
+    pub inherits: Vec<String>,
+    pub directories: Vec<DirectoryIndex>,
     pub hidden: bool,
-    pub example: Option<Cow<'a, str>>,
+    pub example: Option<String>,
 }
 
-impl<'a> ThemeIndex<'a> {
-    pub fn parse_from_file(path: &Path) -> std::io::Result<OwnedThemeIndex> {
+impl ThemeIndex {
+    pub fn parse_from_file(path: &Path) -> std::io::Result<Self> {
         let bytes = std::fs::read(path)?;
         let index = ThemeIndex::parse(&bytes).map_err(std::io::Error::other)?;
 
-        Ok(index.into_owned())
+        Ok(index)
     }
 
-    pub fn parse(bytes: &'a [u8]) -> Result<Self, ThemeParseError> {
-        let mut entry: EntryIter<'a> = freedesktop_entry_parser::low_level::parse_entry(bytes);
+    pub fn parse(bytes: &[u8]) -> Result<Self, ThemeParseError> {
+        let mut entry: EntryIter = freedesktop_entry_parser::low_level::parse_entry(bytes);
 
-        let icon_theme_section: SectionBytes<'a> =
+        let icon_theme_section: SectionBytes =
             entry.next().ok_or(ThemeParseError::NotAnIconTheme)??;
-        let name: &'a str = find_attr_req(&icon_theme_section, "Name")?;
+        let name: &str = find_attr_req(&icon_theme_section, "Name")?;
 
         // SPEC: `Comment` is required, but most icon theme developers can't actually be arsed to
         // include it! To make `icon` practical, we choose a default of an empty string instead.
         // let comment = find_attr_req(&icon_theme_section, "Comment")?;
-        let comment = find_attr(&icon_theme_section, "Comment")?
-            .unwrap_or("");
+        let comment = find_attr(&icon_theme_section, "Comment")?.unwrap_or("");
         // If no theme is specified, implementations are required to add the "hicolor" theme to the inheritance tree.
         let inherits = find_attr(&icon_theme_section, "Inherits")?
             .iter()
@@ -165,53 +143,23 @@ impl<'a> ThemeIndex<'a> {
             example: example.map(Into::into),
         })
     }
-
-    pub fn into_owned(self) -> OwnedThemeIndex {
-        theme_index_into_owned(self)
-    }
 }
 
-fn theme_index_into_owned(index: ThemeIndex) -> OwnedThemeIndex {
-    let name = index.name.into_owned().into();
-    let comment = index.comment.into_owned().into();
-    let inherits = index
-        .inherits
-        .into_iter()
-        .map(Cow::into_owned)
-        .map(Into::into)
-        .collect();
-    let directories = index
-        .directories
-        .into_iter()
-        .map(|x| x.into_owned())
-        .collect();
-    let example = index.example.map(Cow::into_owned).map(Into::into);
-
-    OwnedThemeIndex {
-        name,
-        comment,
-        inherits,
-        directories,
-        example,
-        ..index
-    }
-}
-
-pub struct DirectoryIndex<'a> {
-    pub directory_name: Cow<'a, str>,
+pub struct DirectoryIndex {
+    pub directory_name: String,
     pub is_scaled_dir: bool,
     pub size: u32,
     pub scale: u32,
-    pub context: Option<Cow<'a, str>>,
+    pub context: Option<String>,
     pub directory_type: DirectoryType,
     pub max_size: u32,
     pub min_size: u32,
     pub threshold: u32,
-    // pub additional_values: HashMap<Cow<'a, str>, Cow<'a, str>>,
+    // pub additional_values: HashMap<String, String>,
 }
 
-impl<'a> DirectoryIndex<'a> {
-    fn parse(section: SectionBytes<'a>) -> Result<Self, ThemeParseError> {
+impl DirectoryIndex {
+    fn parse(section: SectionBytes) -> Result<Self, ThemeParseError> {
         let dir_name = str::from_utf8(section.title)?;
         let size: u32 = find_attr_req(&section, "Size")?.parse()?;
         let scale: u32 = find_attr(&section, "Scale")?
@@ -299,27 +247,6 @@ impl<'a> DirectoryIndex<'a> {
             }
         }
     }
-
-    pub fn into_owned(self) -> OwnedDirectoryIndex {
-        dir_index_into_owned(self)
-    }
-}
-
-fn dir_index_into_owned(index: DirectoryIndex) -> OwnedDirectoryIndex {
-    let directory_name: Cow<'static, str> = index.directory_name.into_owned().into();
-    let context: Option<Cow<'static, str>> = index.context.map(|c| c.into_owned().into());
-    // let additional_values: HashMap<Cow<'static, str>, Cow<'static, str>> = index
-    //     .additional_values
-    //     .into_iter()
-    //     .map(|(k, v)| (Cow::Owned(k.into_owned()), Cow::Owned(v.into_owned())))
-    //     .collect();
-
-    OwnedDirectoryIndex {
-        directory_name,
-        context,
-        // additional_values,
-        ..index
-    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -345,7 +272,7 @@ impl TryFrom<&str> for DirectoryType {
 }
 
 fn find_attr<'a>(
-    section: &SectionBytes<'a>,
+    section: &'a SectionBytes,
     name: &str,
 ) -> Result<Option<&'a str>, std::str::Utf8Error> {
     section
@@ -357,7 +284,7 @@ fn find_attr<'a>(
 }
 
 fn find_attr_req<'a>(
-    section: &SectionBytes<'a>,
+    section: &'a SectionBytes,
     name: &'static str,
 ) -> Result<&'a str, ThemeParseError> {
     find_attr(section, name)?.ok_or(MissingRequiredAttribute(name))

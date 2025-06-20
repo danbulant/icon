@@ -1,5 +1,5 @@
 use crate::icon::IconFile;
-use crate::theme::{OwnedThemeDescriptor, Theme, ThemeDescriptor, ThemeParseError};
+use crate::theme::{Theme, ThemeDescriptor, ThemeParseError};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
@@ -100,11 +100,11 @@ pub struct IconLocations {
 }
 
 impl IconLocations {
-    pub fn resolve(&self) -> Vec<Arc<Theme<'static>>> {
+    pub fn resolve(&self) -> Vec<Arc<Theme>> {
         self.resolve_only(self.themes_directories.keys())
     }
 
-    pub fn resolve_only<I, S>(&self, theme_names: I) -> Vec<Arc<Theme<'static>>>
+    pub fn resolve_only<I, S>(&self, theme_names: I) -> Vec<Arc<Theme>>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
@@ -148,7 +148,7 @@ impl IconLocations {
 
             // Collect all parents of this theme:
             for parent in parents {
-                collect_themes(parent.as_ref().as_ref(), locations, themes);
+                collect_themes(parent.as_ref(), locations, themes);
             }
         }
 
@@ -282,7 +282,7 @@ impl IconLocations {
         full_themes
     }
 
-    pub fn theme_description<S>(&self, internal_name: S) -> std::io::Result<OwnedThemeDescriptor>
+    pub fn theme_description<S>(&self, internal_name: S) -> std::io::Result<ThemeDescriptor>
     where
         S: AsRef<OsStr>,
     {

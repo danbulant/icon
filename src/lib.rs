@@ -50,7 +50,6 @@
 //!   - it does not scan "standalone" icons correctly, such as those usually found in `/usr/share/pixmaps`.
 //!   - it adopts a one-shot approach, repeating all parsing and file-finding work for each icon.
 //!   - it does not provide support for caching.
-//!   - it does not support zero-copy parsing of icon theme metadata.
 //!
 //! - [icon-loader](https://crates.io/crates/icon-loader) also implements icon finding, but:
 //!   - like `linicon`, it does not scan "standalone" icons correctly.
