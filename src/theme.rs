@@ -12,11 +12,11 @@ pub struct Icons {
 }
 
 pub struct Theme {
-    pub description: ThemeDescriptor,
-    pub parents: Vec<Arc<Theme>>,
+    pub description: ThemeInfo,
+    pub inherits_from: Vec<Arc<Theme>>,
 }
 
-pub struct ThemeDescriptor {
+pub struct ThemeInfo {
     pub internal_name: String,
     pub base_dirs: Vec<PathBuf>,
     pub index_location: PathBuf,
@@ -42,7 +42,7 @@ pub enum ThemeParseError {
     ParseError(#[from] freedesktop_entry_parser::ParseError),
 }
 
-impl ThemeDescriptor {
+impl ThemeInfo {
     pub fn new_from_folders(internal_name: String, folders: Vec<PathBuf>) -> std::io::Result<Self> {
         let index_location = folders
             .iter()

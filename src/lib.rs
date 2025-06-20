@@ -5,7 +5,7 @@
 //! # Quick start
 //!
 //! ```
-//! let dirs = icon::SearchDirectories::default();
+//! let dirs = icon::IconSearch::default();
 //! // TODO.
 //! ```
 //!
@@ -24,7 +24,7 @@
 //!     While a number of directories should always be scanned for icons, the user or application is
 //!     allowed to search additional directories as it sees fit.
 //!
-//!     [SearchDirectories] handles this part, and is also the main entrypoint for `icon`.
+//!     [IconSearch] handles this part, and is also the main entrypoint for `icon`.
 //!
 //! 2.  *Parsing icon themes*:
 //!
@@ -56,9 +56,8 @@
 //!   - it only supports a rust-native icon cache, which you cannot opt out of.
 //!   - it provides only icon loading—you cannot use it to obtain information about Icon Themes.
 
-
 mod icon;
-mod search_dir;
+mod search;
 pub mod theme;
 
-pub use search_dir::*;
+pub use search::*;

@@ -1,5 +1,5 @@
 use crate::icon::IconFile;
-use crate::theme::{Theme, ThemeDescriptor, ThemeParseError};
+use crate::theme::{Icons, Theme, ThemeInfo, ThemeParseError};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
@@ -9,40 +9,46 @@ use std::sync::Arc;
 ///
 /// By default, that is `$HOME/.icons`, `$XDG_DATA_DIRS/icons` and `/usr/share/pixmaps`.
 /// Applications may further add their own icon directories to this list, and users may extend or change the list.
-/// The default list may be obtained using the `Default` implementation on `SearchDirectories` or its `default` method.
+/// The default list may be obtained using the `Default` implementation on `IconSearch` or its `default` method.
 ///
-/// To add directories to the instance, use [SearchDirectories::append].
+/// To add directories to the instance, use [IconSearch::add_directories].
 ///
-/// To construct a new `SearchDirectories` from a list, use the `From` implementation or construct it by hand.
+/// To construct a new `IconSearch` from a list, use the `From` implementation or construct it by hand.
 ///
 /// # Example
 ///
 /// ```
-/// use icon::SearchDirectories;
+/// use icon::IconSearch;
 ///
-/// let dirs = SearchDirectories::default();
+/// let dirs = IconSearch::default();
 /// // TODO
 /// ```
 #[derive(Debug, Clone)]
-pub struct SearchDirectories {
+pub struct IconSearch {
     pub dirs: Vec<PathBuf>,
 }
 
-impl SearchDirectories {
+impl IconSearch {
+    pub const fn new_empty() -> Self {
+        Self {
+            dirs: Vec::new()
+        }
+    }
+    
     pub fn default() -> Self {
         <Self as Default>::default()
     }
 
-    /// Add a list of directories to this `SearchDirectories`
+    /// Add a list of directories to this `IconSearch`
     ///
     /// # Example
     ///
     /// ```
-    /// use icon::SearchDirectories;
+    /// use icon::IconSearch;
     ///
-    /// let dirs = SearchDirectories::default().append(["/home/root/.icons"]);
+    /// let dirs = IconSearch::default().add_directories(["/home/root/.icons"]);
     /// ```
-    pub fn append<I, P>(mut self, directories: I) -> Self
+    pub fn add_directories<I, P>(mut self, directories: I) -> Self
     where
         I: IntoIterator<Item = P>,
         P: Into<PathBuf>,
@@ -100,11 +106,20 @@ pub struct IconLocations {
 }
 
 impl IconLocations {
-    pub fn resolve(&self) -> Vec<Arc<Theme>> {
+    pub fn icons(self) -> Icons {
+        let themes = self.resolve();
+
+        Icons {
+            standalone_icons: self.standalone_icons,
+            themes,
+        }
+    }
+
+    pub fn resolve(&self) -> HashMap<OsString, Arc<Theme>> {
         self.resolve_only(self.themes_directories.keys())
     }
 
-    pub fn resolve_only<I, S>(&self, theme_names: I) -> Vec<Arc<Theme>>
+    pub fn resolve_only<I, S>(&self, theme_names: I) -> HashMap<OsString, Arc<Theme>>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
@@ -115,14 +130,14 @@ impl IconLocations {
         // To accommodate this, either one has to keep a list of visited icon themes every time they
         // perform a lookup, or avoid the issue altogether by removing redundant parents up-front.
 
-        // That second option is what this function does, paying a (rather small) one-time cost to
-        // make the rest of the API cleaner and smaller by guaranteeing that the returned icon themes
+        // That second option is what this function does, being to pay a (rather small) one-time cost to
+        // make the rest of the API cleaner and smaller. It guarantees that the returned icon themes
         // have dependencies that form a direct acyclic graph without redundant paths.
 
         fn collect_themes(
             name: &OsStr,
             locations: &IconLocations,
-            themes: &mut HashMap<OsString, Option<ThemeDescriptor>>,
+            themes: &mut HashMap<OsString, Option<ThemeInfo>>,
         ) {
             // Skip if we already have this theme.
             if themes.contains_key(name) {
@@ -262,7 +277,7 @@ impl IconLocations {
 
                 let theme = Theme {
                     description: theme_desc,
-                    parents,
+                    inherits_from: parents,
                 };
 
                 full_themes[theme_idx] = Some(Arc::new(theme));
@@ -279,10 +294,14 @@ impl IconLocations {
         // - all themes required by the inheritance tree of those themes, without duplicates,
         // - and an optimal chain (inheritance tree search order) for each theme.
 
-        full_themes
+        // and to wrap things up, let's zip the themes back up with their names
+        theme_names
+            .into_iter()
+            .zip(full_themes)
+            .collect::<HashMap<_, _>>()
     }
 
-    pub fn theme_description<S>(&self, internal_name: S) -> std::io::Result<ThemeDescriptor>
+    pub fn theme_description<S>(&self, internal_name: S) -> std::io::Result<ThemeInfo>
     where
         S: AsRef<OsStr>,
     {
@@ -293,10 +312,7 @@ impl IconLocations {
             .get(internal_name)
             .ok_or_else(|| std::io::Error::other(ThemeParseError::NotAnIconTheme))?;
 
-        ThemeDescriptor::new_from_folders(
-            internal_name.to_string_lossy().into_owned(),
-            theme.clone(),
-        )
+        ThemeInfo::new_from_folders(internal_name.to_string_lossy().into_owned(), theme.clone())
     }
 
     pub fn standalone_icon<S>(&self, icon_name: S) -> Option<&IconFile>
@@ -311,8 +327,8 @@ impl IconLocations {
     }
 }
 
-/// Anything that turns into an iterator of things that can become paths, can be turned into a `SearchDirectories`.
-impl<I, P> From<I> for SearchDirectories
+/// Anything that turns into an iterator of things that can become paths, can be turned into a `IconSearch`.
+impl<I, P> From<I> for IconSearch
 where
     I: IntoIterator<Item = P>,
     P: Into<PathBuf>,
@@ -320,11 +336,11 @@ where
     fn from(value: I) -> Self {
         let dirs = value.into_iter().map(Into::into).collect();
 
-        SearchDirectories { dirs }
+        IconSearch { dirs }
     }
 }
 
-impl Default for SearchDirectories {
+impl Default for IconSearch {
     fn default() -> Self {
         // "By default, apps should look in $HOME/.icons (for backwards compatibility),
         // in $XDG_DATA_DIRS/icons
@@ -351,13 +367,13 @@ impl Default for SearchDirectories {
 
 #[cfg(test)]
 mod test {
-    use crate::search_dir::SearchDirectories;
+    use crate::search::IconSearch;
 
     // these tests assume certain applications are installed on the system they are ran on.
 
     #[test]
     fn test_find_standard_theme_and_icon() {
-        let dirs = SearchDirectories::default();
+        let dirs = IconSearch::default();
 
         let locations = dirs.find_icon_locations();
 
@@ -370,7 +386,7 @@ mod test {
 
     #[test]
     fn test_2() {
-        let result = SearchDirectories::default()
+        let result = IconSearch::default()
             .find_icon_locations()
             .theme_description("breeze")
             .unwrap();
@@ -380,7 +396,7 @@ mod test {
 
     #[test]
     fn test() {
-        let _dirs = SearchDirectories::default().find_icon_locations().resolve();
+        let _dirs = IconSearch::default().find_icon_locations().resolve();
 
         // it didn't panic.
     }
