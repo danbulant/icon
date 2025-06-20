@@ -100,13 +100,11 @@ pub struct IconLocations {
 }
 
 impl IconLocations {
-    pub fn resolve(self) -> Vec<Arc<Theme<'static>>> {
-        let names = self.themes_directories.keys().cloned().collect::<Vec<_>>();
-
-        self.resolve_only(names)
+    pub fn resolve(&self) -> Vec<Arc<Theme<'static>>> {
+        self.resolve_only(self.themes_directories.keys())
     }
 
-    pub fn resolve_only<I, S>(self, theme_names: I) -> Vec<Arc<Theme<'static>>>
+    pub fn resolve_only<I, S>(&self, theme_names: I) -> Vec<Arc<Theme<'static>>>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
