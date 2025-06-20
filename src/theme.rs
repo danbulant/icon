@@ -1,6 +1,6 @@
+use crate::IconSearch;
 use crate::icon::IconFile;
 use crate::theme::ThemeParseError::MissingRequiredAttribute;
-use crate::IconSearch;
 use freedesktop_entry_parser::low_level::{EntryIter, SectionBytes};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
@@ -30,6 +30,10 @@ impl Icons {
         self.find_icon(icon_name, size, scale, "hicolor")
     }
 
+    /// Look up an icon by name, size, scale and theme.
+    ///
+    /// If the icon is not found in the theme, its parents are checked.
+    /// If no theme by the given name exists, the `"hicolor"` theme (default theme) is checked.
     pub fn find_icon(
         &self,
         icon_name: &str,
@@ -37,8 +41,10 @@ impl Icons {
         scale: u32,
         theme: &str,
     ) -> Option<IconFile> {
-        let theme = self.theme(theme)?;
-        theme.find_icon(icon_name, size, scale)
+        let theme = self.theme(theme).or_else(|| self.theme("hicolor"))?;
+        theme
+            .find_icon(icon_name, size, scale)
+            .or_else(|| self.find_standalone_icon(icon_name))
     }
 
     pub fn find_standalone_icon(&self, icon_name: &str) -> Option<IconFile> {
@@ -60,6 +66,15 @@ impl Theme {
     }
 
     pub fn find_icon(&self, icon_name: &str, size: u32, scale: u32) -> Option<IconFile> {
+        self.find_icon_here(icon_name, size, scale).or_else(|| {
+            // or find it in one of our parents
+            self.inherits_from
+                .iter()
+                .find_map(|theme| theme.find_icon_here(icon_name, size, scale))
+        })
+    }
+
+    fn find_icon_here(&self, icon_name: &str, size: u32, scale: u32) -> Option<IconFile> {
         const EXTENSIONS: [&'static str; 3] = ["png", "xmp", "svg"];
         let file_names = EXTENSIONS.map(|ext| format!("{icon_name}.{ext}"));
 
@@ -394,24 +409,84 @@ fn find_attr_req<'a>(
 
 #[cfg(test)]
 mod test {
+    use crate::Icons;
     use crate::icon::{FileType, IconFile};
     use crate::theme::{DirectoryType, ThemeIndex};
-    use crate::Icons;
     use std::error::Error;
+    use std::path::Path;
 
     #[test]
-    fn test_find_icon() {
+    fn test_find_firefox() {
         let icons = Icons::new();
 
-        let option = icons.find_default_icon("firefox", 128, 1);
+        let ico = icons.find_default_icon("firefox", 128, 1);
 
         assert_eq!(
-            option,
+            ico,
             Some(IconFile {
                 path: "/usr/share/icons/hicolor/128x128/apps/firefox.png".into(),
                 file_type: FileType::Png
             })
-        )
+        );
+
+        // we should be able to find an icon for a bunch of different sizes
+        for size in (16u32..=64).step_by(8) {
+            assert!(icons.find_default_icon("firefox", size, 1).is_some());
+        }
+
+        assert!(icons.find_default_icon("firefox", 64, 2).is_some());
+    }
+
+    #[test]
+    fn find_all_desktop_entry_icons() {
+        let icons = Icons::new();
+
+        // some desktop files are just packaged poorly.
+        // if a test fails here, and you are certain that the icon just straight up doesn't exist,
+        // or is in an unfindable place by normal means,
+        // disallow it in this list.
+        static DISALLOW_LIST: &[&str] = &[
+            "imv-dir",
+            "imv",
+            "io.elementary.granite.demo",
+            "java-java-openjdk",
+            "jconsole-java-openjdk",
+            "jshell-java-openjdk",
+            "lstopo",
+            "signon-ui",
+        ];
+
+        for entry in
+            freedesktop_desktop_entry::Iter::new(freedesktop_desktop_entry::default_paths())
+                .entries(None::<&[&str]>)
+        {
+            let Some(icon_name) = entry.icon() else {
+                continue;
+            };
+
+            if Path::new(icon_name).exists() {
+                continue; // absolute URLs to icons are OK
+            }
+
+            if DISALLOW_LIST
+                .iter()
+                .any(|x| Some(x.as_ref()) == entry.path.file_stem())
+            {
+                continue;
+            }
+
+            // TODO: perhaps our system should expose a way to construct a "composed theme" filter,
+            // for cases where you want to search a multitude (or all) themes
+            let icon = icons
+                .find_icon(icon_name, 32, 1, "gnome")
+                .or_else(|| icons.find_icon(icon_name, 32, 1, "breeze"));
+
+            assert!(
+                icon.is_some(),
+                "Icon {icon_name} from desktop entry {:?} missing!!",
+                entry.path
+            )
+        }
     }
 
     #[test]

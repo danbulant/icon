@@ -39,16 +39,15 @@ impl FileType {
             None
         }
     }
-    
+
     pub fn ext(&self) -> &str {
         match self {
             FileType::Png => "png",
             FileType::Xmp => "xmp",
             FileType::Svg => "svg",
         }
-        
     }
-    
+
     pub const fn types() -> [FileType; 3] {
         [FileType::Png, FileType::Xmp, FileType::Svg]
     }

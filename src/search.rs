@@ -51,7 +51,7 @@ pub mod states {
 
 /// Icons and icon themes are looked for in a set of directories.
 ///
-/// By default, that is `$HOME/.icons`, `$XDG_DATA_DIRS/icons` and `/usr/share/pixmaps`.
+/// By default, that is `$HOME/.icons`, `$XDG_DATA_HOME/icons`, `$XDG_DATA_DIRS/icons` and `/usr/share/pixmaps`.
 /// Applications may further add their own icon directories to this list, and users may extend or change the list.
 /// The default list may be obtained using the `Default` implementation on `IconSearch` or its `default` method.
 ///
@@ -512,8 +512,9 @@ impl Default for IconSearch {
             directories.push(home.join(".icons"));
         }
 
-        xdg.data_dirs
+        xdg.data_home
             .into_iter()
+            .chain(xdg.data_dirs.into_iter())
             .map(|data_dir| data_dir.join("icons"))
             .for_each(|dir| directories.push(dir));
 
@@ -535,6 +536,8 @@ mod test {
             .add_directories(["/this/path/probably/doesnt/exist/but/who/cares/"])
             .search()
             .icons();
+
+        // no panic
     }
 
     #[test]
@@ -548,22 +551,5 @@ mod test {
 
         let icon = locations.standalone_icon("htop").unwrap();
         assert_eq!(icon.path.file_name(), Some("htop.png".as_ref()))
-    }
-
-    #[test]
-    fn test_2() {
-        let result = IconSearch::default()
-            .find_icon_locations()
-            .load_single_theme("breeze")
-            .unwrap();
-
-        println!("{:?}", result.index.inherits);
-    }
-
-    #[test]
-    fn test() {
-        let _dirs = IconSearch::default().find_icon_locations().resolve();
-
-        // it didn't panic.
     }
 }
