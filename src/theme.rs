@@ -1,11 +1,26 @@
+use crate::icon::IconFile;
 use crate::theme::ThemeParseError::MissingRequiredAttribute;
 use freedesktop_entry_parser::low_level::{EntryIter, SectionBytes};
 use std::borrow::Cow;
+use std::collections::HashMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+pub type OwnedIcons = Icons<'static>;
 pub type OwnedThemeDescriptor = ThemeDescriptor<'static>;
 pub type OwnedThemeIndex = ThemeIndex<'static>;
 pub type OwnedDirectoryIndex = DirectoryIndex<'static>;
+
+pub struct Icons<'a> {
+    pub standalone_icons: Vec<IconFile>,
+    pub themes: HashMap<OsString, Arc<Theme<'a>>>,
+}
+
+pub struct Theme<'a> {
+    pub description: ThemeDescriptor<'a>,
+    pub parents: Vec<Arc<Theme<'a>>>,
+}
 
 pub struct ThemeDescriptor<'a> {
     pub internal_name: String,
@@ -50,7 +65,7 @@ impl ThemeDescriptor<'_> {
             index,
         })
     }
-    
+
     pub fn into_owned(self) -> OwnedThemeDescriptor {
         theme_into_owned(self)
     }
@@ -90,11 +105,16 @@ impl<'a> ThemeIndex<'a> {
         let icon_theme_section: SectionBytes<'a> =
             entry.next().ok_or(ThemeParseError::NotAnIconTheme)??;
         let name: &'a str = find_attr_req(&icon_theme_section, "Name")?;
-        let comment = find_attr_req(&icon_theme_section, "Comment")?;
+
+        // SPEC: `Comment` is required, but most icon theme developers can't actually be arsed to
+        // include it! To make `icon` practical, we choose a default of an empty string instead.
+        // let comment = find_attr_req(&icon_theme_section, "Comment")?;
+        let comment = find_attr(&icon_theme_section, "Comment")?
+            .unwrap_or("");
         // If no theme is specified, implementations are required to add the "hicolor" theme to the inheritance tree.
         let inherits = find_attr(&icon_theme_section, "Inherits")?
-            .unwrap_or("hicolor")
-            .split(',') // `inherits` is a comma-separated string list
+            .iter()
+            .flat_map(|s| s.split(',')) // `inherits` is a comma-separated string list
             .map(Into::into)
             .collect::<Vec<_>>();
         let directories = find_attr_req(&icon_theme_section, "Directories")?
