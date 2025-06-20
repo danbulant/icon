@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct IconFile {
     pub path: PathBuf,
     pub file_type: FileType,
@@ -17,7 +17,7 @@ impl IconFile {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum FileType {
     Png,
     Xmp,
@@ -38,5 +38,18 @@ impl FileType {
         } else {
             None
         }
+    }
+    
+    pub fn ext(&self) -> &str {
+        match self {
+            FileType::Png => "png",
+            FileType::Xmp => "xmp",
+            FileType::Svg => "svg",
+        }
+        
+    }
+    
+    pub const fn types() -> [FileType; 3] {
+        [FileType::Png, FileType::Xmp, FileType::Svg]
     }
 }

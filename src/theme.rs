@@ -1,9 +1,9 @@
-use crate::IconSearch;
 use crate::icon::IconFile;
 use crate::theme::ThemeParseError::MissingRequiredAttribute;
+use crate::IconSearch;
 use freedesktop_entry_parser::low_level::{EntryIter, SectionBytes};
 use std::collections::HashMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -20,11 +20,102 @@ impl Icons {
     pub fn new() -> Self {
         IconSearch::default().search().icons()
     }
+
+    pub fn theme(&self, theme_name: &str) -> Option<Arc<Theme>> {
+        let theme_name: &OsStr = theme_name.as_ref();
+        self.themes.get(theme_name).cloned()
+    }
+
+    pub fn find_default_icon(&self, icon_name: &str, size: u32, scale: u32) -> Option<IconFile> {
+        self.find_icon(icon_name, size, scale, "hicolor")
+    }
+
+    pub fn find_icon(
+        &self,
+        icon_name: &str,
+        size: u32,
+        scale: u32,
+        theme: &str,
+    ) -> Option<IconFile> {
+        let theme = self.theme(theme)?;
+        theme.find_icon(icon_name, size, scale)
+    }
+
+    pub fn find_standalone_icon(&self, icon_name: &str) -> Option<IconFile> {
+        self.standalone_icons
+            .iter()
+            .find(|ico| ico.path.file_stem() == Some(icon_name.as_ref()))
+            .cloned()
+    }
 }
 
 pub struct Theme {
     pub info: ThemeInfo,
     pub inherits_from: Vec<Arc<Theme>>,
+}
+
+impl Theme {
+    pub fn find_icon_unscaled(&self, icon_name: &str, size: u32) -> Option<IconFile> {
+        self.find_icon(icon_name, size, 1)
+    }
+
+    pub fn find_icon(&self, icon_name: &str, size: u32, scale: u32) -> Option<IconFile> {
+        const EXTENSIONS: [&'static str; 3] = ["png", "xmp", "svg"];
+        let file_names = EXTENSIONS.map(|ext| format!("{icon_name}.{ext}"));
+
+        let base_dirs = &self.info.base_dirs;
+
+        let sub_dirs = &self.info.index.directories;
+        // first, try to find an exact icon size match:
+        let exact_sub_dirs = sub_dirs
+            .into_iter()
+            .filter(|sub_dir| sub_dir.matches_size(size, scale));
+
+        for base_dir in base_dirs {
+            for sub_dir in exact_sub_dirs.clone() {
+                for file_name in &file_names {
+                    let path = base_dir
+                        .join(sub_dir.directory_name.as_str())
+                        .join(file_name);
+
+                    if path.exists() {
+                        if let Some(file) = IconFile::from_path(&path) {
+                            // exact match!
+                            return Some(file);
+                        }
+                    }
+                }
+            }
+        }
+
+        drop(exact_sub_dirs);
+
+        // no exact match: try to find a match as close as possible instead.
+        let mut min_dist = u32::MAX;
+        let mut best_icon = None;
+
+        for base_dir in base_dirs {
+            for sub_dir in sub_dirs {
+                let distance = sub_dir.size_distance(size, scale);
+
+                if distance < min_dist {
+                    for file_name in &file_names {
+                        let path = base_dir
+                            .join(sub_dir.directory_name.as_str())
+                            .join(file_name);
+                        if path.exists() {
+                            if let Some(file) = IconFile::from_path(&path) {
+                                min_dist = distance;
+                                best_icon = Some(file);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        best_icon
+    }
 }
 
 pub struct ThemeInfo {
@@ -96,9 +187,9 @@ impl ThemeIndex {
             entry.next().ok_or(ThemeParseError::NotAnIconTheme)??;
         let name: &str = find_attr_req(&icon_theme_section, "Name")?;
 
-        // SPEC: `Comment` is required, but most icon theme developers can't actually be arsed to
+        // SPEC: `Comment` is required, but most icon theme developers can't be arsed to
         // include it! To make `icon` practical, we choose a default of an empty string instead.
-        // let comment = find_attr_req(&icon_theme_section, "Comment")?;
+        // `let comment = find_attr_req(&icon_theme_section, "Comment")?;`
         let comment = find_attr(&icon_theme_section, "Comment")?.unwrap_or("");
         // If no theme is specified, implementations are required to add the "hicolor" theme to the inheritance tree.
         let inherits = find_attr(&icon_theme_section, "Inherits")?
@@ -129,7 +220,7 @@ impl ThemeIndex {
                     .unwrap_or(false);
 
                 if !directories.contains(&title) && !is_scaled_dir {
-                    // section isn't a listed directory! ignore!
+                    // this section isn't a listed directory! ignore!
                     return None;
                 }
 
@@ -303,8 +394,25 @@ fn find_attr_req<'a>(
 
 #[cfg(test)]
 mod test {
+    use crate::icon::{FileType, IconFile};
     use crate::theme::{DirectoryType, ThemeIndex};
+    use crate::Icons;
     use std::error::Error;
+
+    #[test]
+    fn test_find_icon() {
+        let icons = Icons::new();
+
+        let option = icons.find_default_icon("firefox", 128, 1);
+
+        assert_eq!(
+            option,
+            Some(IconFile {
+                path: "/usr/share/icons/hicolor/128x128/apps/firefox.png".into(),
+                file_type: FileType::Png
+            })
+        )
+    }
 
     #[test]
     fn test_parse_example_theme() -> Result<(), Box<dyn Error>> {
