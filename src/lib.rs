@@ -61,3 +61,4 @@ mod search;
 pub mod theme;
 
 pub use search::*;
+pub use theme::Icons;

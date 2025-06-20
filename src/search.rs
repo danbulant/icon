@@ -2,8 +2,52 @@ use crate::icon::IconFile;
 use crate::theme::{Icons, Theme, ThemeInfo, ThemeParseError};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
+use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
+use states::*;
+
+macro_rules! states {
+    ($($(#[$($attr:tt)*])* $id:ident),*) => {
+        mod sealed {
+            pub trait Sealed {}
+        }
+
+        pub trait TypeStateProtector: sealed::Sealed {}
+
+        $(
+            $(#[$($attr)*])*
+            pub struct $id;
+
+            impl sealed::Sealed for $id {}
+            impl TypeStateProtector for $id {}
+        )*
+    };
+}
+
+pub mod states {
+    states!(
+        /// Initial state.
+        ///
+        /// Configure directories where icons and icon themes may be found.
+        ///
+        /// Then, proceed to [LocationsFound].
+        Initial,
+        /// Second state, proceeding [Initial].
+        ///
+        /// We've found standalone icons and have candidates for where icon themes may live.
+        /// If you are only interested in standalone icons or just need a list of icon theme names
+        /// (although, watch out: they're _candidates_ and might not be valid icon themes),
+        /// you can drop out at this stage.
+        LocationsFound,
+        /// Third state, proceeding [LocationsFound].
+        ///
+        /// We've found standalone icons and have parsed all icon themes plus calculated their
+        /// inheritance tree. At this stage, you can inspect the results from the search process
+        /// and then proceed to the usable icon-finder by calling `collect()`.
+        Finished
+    );
+}
 
 /// Icons and icon themes are looked for in a set of directories.
 ///
@@ -11,42 +55,73 @@ use std::sync::Arc;
 /// Applications may further add their own icon directories to this list, and users may extend or change the list.
 /// The default list may be obtained using the `Default` implementation on `IconSearch` or its `default` method.
 ///
-/// To add directories to the instance, use [IconSearch::add_directories].
+/// To add directories to the instance, use [`IconSearch::add_directories`].
 ///
-/// To construct a new `IconSearch` from a list, use the `From` implementation or construct it by hand.
+/// To construct a new `IconSearch` from a list, use the `From` implementation or [`IconSearch::new_from`].
 ///
 /// # Example
 ///
 /// ```
 /// use icon::IconSearch;
 ///
-/// let dirs = IconSearch::default();
-/// // TODO
+/// let icons = IconSearch::default()
+///     // (optional) add directories to search
+///     .add_directories(["/some/additional/directory/"])
+///     // find icons and folders
+///     .search()
+///     // resolve all icon themes and return an Icons struct which you can use for icon finding!
+///     .icons();
 /// ```
-#[derive(Debug, Clone)]
-pub struct IconSearch {
+// #[derive(Debug, Clone)]
+pub struct IconSearch<State = Initial> {
+    /// The list of directories to search for standalone icons and icon themes
     pub dirs: Vec<PathBuf>,
+    icon_locations: Option<IconLocations>,
+    icons: Option<Icons>,
+    // in fn() so that the compiler doesn't see State as part of this struct,
+    // which avoids noise in rustdoc.
+    _state: PhantomData<fn() -> State>,
 }
 
-impl IconSearch {
-    pub const fn new_empty() -> Self {
-        Self {
-            dirs: Vec::new()
-        }
-    }
-    
+impl IconSearch<Initial> {
+    // -- STAGE 1: Establish directories wherein to find icons
+
+    /// Constructs a new `IconSearch` from the default directories, which are
+    /// - `$HOME/.icons`
+    /// - `$XDG_DATA_DIRS/icons`
+    /// - `/usr/share/pixmaps`
+    /// 
+    /// If you wish to add directories to those, use this function and then [`add_directories`](Self::add_directories).
     pub fn default() -> Self {
         <Self as Default>::default()
     }
 
-    /// Add a list of directories to this `IconSearch`
+    /// Constructs a new `IconSearch` without any directories to search.
+    pub const fn new_empty() -> Self {
+        Self::new_from(Vec::new())
+    }
+
+    /// Constructs a new `IconSearch` from a list of directories to search.
+    pub const fn new_from(dirs: Vec<PathBuf>) -> Self {
+        Self {
+            dirs,
+            icon_locations: None,
+            icons: None,
+            _state: PhantomData,
+        }
+    }
+
+    /// Adds a list of directories to this `IconSearch`.
     ///
     /// # Example
     ///
     /// ```
     /// use icon::IconSearch;
     ///
-    /// let dirs = IconSearch::default().add_directories(["/home/root/.icons"]);
+    /// let dirs = IconSearch::default()
+    ///     .add_directories(["/home/root/.icons"])
+    ///     .search()
+    ///     .icons();
     /// ```
     pub fn add_directories<I, P>(mut self, directories: I) -> Self
     where
@@ -59,7 +134,9 @@ impl IconSearch {
         extra_dirs.into()
     }
 
-    pub fn find_icon_locations(&self) -> IconLocations {
+    // -- STAGE 2: In search dirs, find standalone icons and directories that may be icon themes
+
+    fn find_icon_locations(&self) -> IconLocations {
         // "Each theme is stored as subdirectories of the base directories"
 
         let (files, dirs) = self
@@ -97,6 +174,66 @@ impl IconSearch {
             themes_directories,
         }
     }
+    
+    /// Find icons and icon themes in the configured search directories.
+    ///
+    /// This function proceeds the [`IconSearch`] to the [next stage](LocationsFound).
+    pub fn search(self) -> IconSearch<LocationsFound> {
+        let icon_locations = self.find_icon_locations();
+
+        IconSearch::<LocationsFound> {
+            dirs: self.dirs,
+            icon_locations: Some(icon_locations),
+            icons: None,
+            _state: PhantomData,
+        }
+    }
+}
+
+impl IconSearch<LocationsFound> {
+    /// Borrows the [`IconLocations`] from this `IconSearch` for inspection.
+    pub fn icon_locations(&self) -> &IconLocations {
+        self.icon_locations
+            .as_ref()
+            .expect("guaranteed by type-state")
+    }
+    
+    /// Consume this `IconSearch` to expose its [`IconLocations`].
+    /// 
+    /// Contained search directories are lost.
+    pub fn into_icon_locations(self) -> IconLocations {
+        let icons = self.icon_locations.expect("guaranteed by type-state");
+        icons
+    }
+
+    // -- STAGE 3: We have icon theme candidates, so it's time to resolve them.
+    
+    fn finish(self) -> IconSearch<Finished> {
+        let icons = self.icon_locations.expect("guaranteed by type-state");
+        let icons = icons.icons();
+
+        IconSearch {
+            dirs: self.dirs,
+            icon_locations: None, // consumed!
+            icons: Some(icons),
+            _state: PhantomData
+        }
+    }
+
+    /// Finish icon finding by parsing, validating, and resolving (parents of) all icon themes
+    /// found.
+    pub fn icons(self) -> Icons {
+        self.finish().icons()
+    }
+}
+
+impl IconSearch<Finished> {
+    /// Consume this `IconSearch` to expose its [`Icons`].
+    ///
+    /// Contained search directories are lost.
+    pub fn icons(self) -> Icons {
+        self.icons.expect("guaranteed by type-state")
+    }
 }
 
 #[derive(Debug)]
@@ -106,6 +243,21 @@ pub struct IconLocations {
 }
 
 impl IconLocations {
+    /// Find icon locations from a given `IconSearch` (in initial state).
+    ///
+    /// There are few reasons to use this function.
+    /// Prefer following the normal flow instead:
+    /// ```rust
+    /// use icon::IconSearch;
+    /// let search = IconSearch::default()
+    ///     .search();
+    /// 
+    /// let locations = search.into_icon_locations();
+    /// ```
+    pub fn from_icon_search(dirs: &IconSearch<Initial>) -> Self {
+        dirs.find_icon_locations()
+    }
+
     pub fn icons(self) -> Icons {
         let themes = self.resolve();
 
@@ -144,7 +296,7 @@ impl IconLocations {
                 return;
             }
 
-            let descriptor = match locations.theme_description(name) {
+            let descriptor = match locations.load_single_theme(name) {
                 Ok(d) => Some(d),
                 Err(_e) => {
                     #[cfg(feature = "log")]
@@ -200,9 +352,9 @@ impl IconLocations {
         let hicolor_idx = theme_names.iter().position(|name| name == "hicolor");
 
         // Time to find the optimal ancestry for each theme.
-        // as hicolor _should_ have all icons by default, and all themes depend on hicolor at some depth,
+        // As hicolor _should_ have all icons by default, and all themes depend on hicolor at some depth,
         // DFS would de facto end up in hicolor before ever trying the second theme in an Inherits set.
-        // therefore BFS is the only sensible option, but the spec doesn't define this.
+        // Therefore, BFS is the only sensible option, but the spec doesn't define this.
 
         // indexed by the position in our theme_names/theme_descriptions vecs
         let number_of_themes = theme_names.len();
@@ -301,7 +453,13 @@ impl IconLocations {
             .collect::<HashMap<_, _>>()
     }
 
-    pub fn theme_description<S>(&self, internal_name: S) -> std::io::Result<ThemeInfo>
+    /// Parse a single theme, returning its info.
+    /// 
+    /// This is a rather low-level function, as it does not give you (easy) access to a usable
+    /// version of the theme's inheritance tree.
+    /// 
+    /// Unless theme metadata is all you need, use [`resolve`](IconLocations::resolve) or [`resolve_only`](IconLocations::resolve_only) instead!
+    pub fn load_single_theme<S>(&self, internal_name: S) -> std::io::Result<ThemeInfo>
     where
         S: AsRef<OsStr>,
     {
@@ -327,7 +485,7 @@ impl IconLocations {
     }
 }
 
-/// Anything that turns into an iterator of things that can become paths, can be turned into a `IconSearch`.
+/// Anything that turns into an iterator of things that can become paths can be turned into an [`IconSearch`].
 impl<I, P> From<I> for IconSearch
 where
     I: IntoIterator<Item = P>,
@@ -336,7 +494,7 @@ where
     fn from(value: I) -> Self {
         let dirs = value.into_iter().map(Into::into).collect();
 
-        IconSearch { dirs }
+        IconSearch::new_from(dirs)
     }
 }
 
@@ -369,15 +527,23 @@ impl Default for IconSearch {
 mod test {
     use crate::search::IconSearch;
 
-    // these tests assume certain applications are installed on the system they are ran on.
+    // these tests assume certain applications are installed on the system they are run on.
 
+    #[test]
+    fn test_standard_usage() {
+        let icons = IconSearch::default()
+            .add_directories(["/this/path/probably/doesnt/exist/but/who/cares/"])
+            .search()
+            .icons();
+    }
+    
     #[test]
     fn test_find_standard_theme_and_icon() {
         let dirs = IconSearch::default();
 
         let locations = dirs.find_icon_locations();
 
-        let descriptor = locations.theme_description("Adwaita").unwrap();
+        let descriptor = locations.load_single_theme("Adwaita").unwrap();
         assert_eq!(descriptor.index.name, "Adwaita");
 
         let icon = locations.standalone_icon("htop").unwrap();
@@ -388,7 +554,7 @@ mod test {
     fn test_2() {
         let result = IconSearch::default()
             .find_icon_locations()
-            .theme_description("breeze")
+            .load_single_theme("breeze")
             .unwrap();
 
         println!("{:?}", result.index.inherits);

@@ -5,10 +5,23 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use crate::IconSearch;
 
 pub struct Icons {
     pub standalone_icons: Vec<IconFile>,
     pub themes: HashMap<OsString, Arc<Theme>>,
+}
+
+impl Icons {
+    /// Creates a new `Icons`, performing a search in the standard directories.
+    /// 
+    /// This function collects all standalone icons and icon themes on the system.
+    /// To configure what directories are searched, use [`IconSearch`] instead.
+    pub fn new() -> Self {
+        IconSearch::default()
+            .search()
+            .icons()
+    }
 }
 
 pub struct Theme {
