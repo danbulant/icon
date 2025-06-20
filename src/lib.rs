@@ -6,7 +6,10 @@
 //!
 //! ```
 //! let icons = icon::Icons::new();
-//! // TODO.
+//!
+//! let firefox: Option<icon::IconFile> = icons.find_icon("firefox", 128, 1, "Adwaita");
+//! 
+//! println!("Firefox icon is at {:?}", firefox.unwrap().path)
 //! ```
 //!
 //! # High level design
@@ -60,5 +63,6 @@ mod icon;
 mod search;
 pub mod theme;
 
+pub use icon::*;
 pub use search::*;
 pub use theme::Icons;
