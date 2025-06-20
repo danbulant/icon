@@ -1,3 +1,4 @@
+use crate::IconSearch;
 use crate::icon::IconFile;
 use crate::theme::ThemeParseError::MissingRequiredAttribute;
 use freedesktop_entry_parser::low_level::{EntryIter, SectionBytes};
@@ -5,7 +6,6 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use crate::IconSearch;
 
 pub struct Icons {
     pub standalone_icons: Vec<IconFile>,
@@ -14,18 +14,16 @@ pub struct Icons {
 
 impl Icons {
     /// Creates a new `Icons`, performing a search in the standard directories.
-    /// 
+    ///
     /// This function collects all standalone icons and icon themes on the system.
     /// To configure what directories are searched, use [`IconSearch`] instead.
     pub fn new() -> Self {
-        IconSearch::default()
-            .search()
-            .icons()
+        IconSearch::default().search().icons()
     }
 }
 
 pub struct Theme {
-    pub description: ThemeInfo,
+    pub info: ThemeInfo,
     pub inherits_from: Vec<Arc<Theme>>,
 }
 

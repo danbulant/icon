@@ -1,11 +1,11 @@
 use crate::icon::IconFile;
 use crate::theme::{Icons, Theme, ThemeInfo, ThemeParseError};
+use states::*;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
-use states::*;
 
 macro_rules! states {
     ($($(#[$($attr:tt)*])* $id:ident),*) => {
@@ -90,7 +90,7 @@ impl IconSearch<Initial> {
     /// - `$HOME/.icons`
     /// - `$XDG_DATA_DIRS/icons`
     /// - `/usr/share/pixmaps`
-    /// 
+    ///
     /// If you wish to add directories to those, use this function and then [`add_directories`](Self::add_directories).
     pub fn default() -> Self {
         <Self as Default>::default()
@@ -174,7 +174,7 @@ impl IconSearch<Initial> {
             themes_directories,
         }
     }
-    
+
     /// Find icons and icon themes in the configured search directories.
     ///
     /// This function proceeds the [`IconSearch`] to the [next stage](LocationsFound).
@@ -197,9 +197,9 @@ impl IconSearch<LocationsFound> {
             .as_ref()
             .expect("guaranteed by type-state")
     }
-    
+
     /// Consume this `IconSearch` to expose its [`IconLocations`].
-    /// 
+    ///
     /// Contained search directories are lost.
     pub fn into_icon_locations(self) -> IconLocations {
         let icons = self.icon_locations.expect("guaranteed by type-state");
@@ -207,7 +207,7 @@ impl IconSearch<LocationsFound> {
     }
 
     // -- STAGE 3: We have icon theme candidates, so it's time to resolve them.
-    
+
     fn finish(self) -> IconSearch<Finished> {
         let icons = self.icon_locations.expect("guaranteed by type-state");
         let icons = icons.icons();
@@ -216,7 +216,7 @@ impl IconSearch<LocationsFound> {
             dirs: self.dirs,
             icon_locations: None, // consumed!
             icons: Some(icons),
-            _state: PhantomData
+            _state: PhantomData,
         }
     }
 
@@ -251,7 +251,7 @@ impl IconLocations {
     /// use icon::IconSearch;
     /// let search = IconSearch::default()
     ///     .search();
-    /// 
+    ///
     /// let locations = search.into_icon_locations();
     /// ```
     pub fn from_icon_search(dirs: &IconSearch<Initial>) -> Self {
@@ -296,7 +296,7 @@ impl IconLocations {
                 return;
             }
 
-            let descriptor = match locations.load_single_theme(name) {
+            let info = match locations.load_single_theme(name) {
                 Ok(d) => Some(d),
                 Err(_e) => {
                     #[cfg(feature = "log")]
@@ -305,13 +305,13 @@ impl IconLocations {
                     None
                 }
             };
-            let descriptor = themes.entry(name.to_os_string()).insert_entry(descriptor);
+            let info = themes.entry(name.to_os_string()).insert_entry(info);
 
-            let Some(descriptor) = descriptor.get() else {
+            let Some(info) = info.get() else {
                 return;
             };
 
-            let parents = descriptor.index.inherits.clone();
+            let parents = info.index.inherits.clone();
 
             // Collect all parents of this theme:
             for parent in parents {
@@ -319,7 +319,7 @@ impl IconLocations {
             }
         }
 
-        // Map from theme names to their descriptor:
+        // Map from theme names to their info:
         let mut themes = HashMap::new();
 
         // collect all required themes:
@@ -334,18 +334,18 @@ impl IconLocations {
         // of course, the user might be cursed and not have `hicolor` installed at all!
         // that is troubling, but we'll see that it is handled correctly below.
 
-        // let's prune theme candidates that have no description (meaning they weren't themes, or
+        // let's prune theme candidates that have no info (meaning they weren't themes, or
         //  were invalid)
         // we'll also split them up, as `theme_chains` borrows names from `theme_names`,
-        // but we need to mutate theme_descriptions later (during the borrow) to avoid
-        // cloning the descriptions
-        let (theme_names, mut theme_descriptions): (Vec<_>, Vec<_>) = themes
+        // but we need to mutate theme_info later (during the borrow) to avoid
+        // cloning the info
+        let (theme_names, mut theme_info): (Vec<_>, Vec<_>) = themes
             .into_iter()
             .flat_map(|(key, value)| value.map(|v| (key, Some(v))))
             .unzip();
 
-        // the Options are there just so we can take descriptions out of the vec without messing up the order.
-        debug_assert!(theme_descriptions.iter().all(Option::is_some));
+        // the Options are there just so we can take info out of the vec without messing up the order.
+        debug_assert!(theme_info.iter().all(Option::is_some));
 
         // do we even have hicolor?
         // if not, there's no use in inserting hicolor into the inheritance tree later
@@ -356,7 +356,7 @@ impl IconLocations {
         // DFS would de facto end up in hicolor before ever trying the second theme in an Inherits set.
         // Therefore, BFS is the only sensible option, but the spec doesn't define this.
 
-        // indexed by the position in our theme_names/theme_descriptions vecs
+        // indexed by the position in our theme_names/theme_info vecs
         let number_of_themes = theme_names.len();
         let mut theme_chains = Vec::<Vec<usize>>::with_capacity(number_of_themes);
 
@@ -367,11 +367,11 @@ impl IconLocations {
             while let Some(node_idx) = chain.get(cursor).copied() {
                 cursor += 1;
 
-                let Some(Some(description)) = theme_descriptions.get(node_idx) else {
+                let Some(Some(info)) = theme_info.get(node_idx) else {
                     continue;
                 };
 
-                for parent in &description.index.inherits {
+                for parent in &info.index.inherits {
                     let Some(parent_idx) = theme_names
                         .iter()
                         .position(|name| *name.as_os_str() == **parent)
@@ -410,9 +410,9 @@ impl IconLocations {
         for chain in &theme_chains {
             // go from last theme to first, as all dependencies are "forward" in the chain:
             for theme_idx in chain.iter().copied().rev() {
-                let theme_desc = theme_descriptions[theme_idx].take();
+                let theme_info = theme_info[theme_idx].take();
 
-                let Some(theme_desc) = theme_desc else {
+                let Some(theme_info) = theme_info else {
                     // the option was None, meaning this theme was processed already :-)
                     continue;
                 };
@@ -428,7 +428,7 @@ impl IconLocations {
                     .collect();
 
                 let theme = Theme {
-                    description: theme_desc,
+                    info: theme_info,
                     inherits_from: parents,
                 };
 
@@ -454,10 +454,10 @@ impl IconLocations {
     }
 
     /// Parse a single theme, returning its info.
-    /// 
+    ///
     /// This is a rather low-level function, as it does not give you (easy) access to a usable
     /// version of the theme's inheritance tree.
-    /// 
+    ///
     /// Unless theme metadata is all you need, use [`resolve`](IconLocations::resolve) or [`resolve_only`](IconLocations::resolve_only) instead!
     pub fn load_single_theme<S>(&self, internal_name: S) -> std::io::Result<ThemeInfo>
     where
@@ -531,20 +531,20 @@ mod test {
 
     #[test]
     fn test_standard_usage() {
-        let icons = IconSearch::default()
+        let _icons = IconSearch::default()
             .add_directories(["/this/path/probably/doesnt/exist/but/who/cares/"])
             .search()
             .icons();
     }
-    
+
     #[test]
     fn test_find_standard_theme_and_icon() {
         let dirs = IconSearch::default();
 
         let locations = dirs.find_icon_locations();
 
-        let descriptor = locations.load_single_theme("Adwaita").unwrap();
-        assert_eq!(descriptor.index.name, "Adwaita");
+        let info = locations.load_single_theme("Adwaita").unwrap();
+        assert_eq!(info.index.name, "Adwaita");
 
         let icon = locations.standalone_icon("htop").unwrap();
         assert_eq!(icon.path.file_name(), Some("htop.png".as_ref()))

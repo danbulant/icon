@@ -5,7 +5,7 @@
 //! # Quick start
 //!
 //! ```
-//! let dirs = icon::IconSearch::default();
+//! let icons = icon::Icons::new();
 //! // TODO.
 //! ```
 //!
@@ -34,7 +34,7 @@
 //!
 //!     To find icons in a theme, its `index.theme` file must be parsed to understand the directory
 //!     structure within the theme itself.
-//!     This is handled by [ThemeDescriptor].
+//!     This is handled by [theme::ThemeInfo].
 //!
 //! 3a. *Find just one icon* (oneshot):
 //!
