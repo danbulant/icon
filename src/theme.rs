@@ -65,6 +65,10 @@ impl Icons {
         scale: u32,
         theme: &str,
     ) -> Option<IconFile> {
+        if icon_name.is_empty() {
+            return None;
+        }
+        
         let theme = self.theme(theme).or_else(|| self.theme("hicolor"))?;
         theme
             .find_icon(icon_name, size, scale)
