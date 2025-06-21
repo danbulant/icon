@@ -20,7 +20,7 @@ use std::sync::Arc;
 /// Icons::new().find_icon("firefox", 32, 1, "hicolor");
 /// ```
 pub struct Icons {
-    pub standalone_icons: Vec<IconFile>,
+    pub standalone_icons: HashMap<String, IconFile>,
     pub themes: HashMap<OsString, Arc<Theme>>,
 }
 
@@ -82,9 +82,7 @@ impl Icons {
     /// 
     /// These icons do not have any size or scalability information attached to them. 
     pub fn find_standalone_icon(&self, icon_name: &str) -> Option<IconFile> {
-        self.standalone_icons
-            .iter()
-            .find(|ico| ico.path.file_stem() == Some(icon_name.as_ref()))
+        self.standalone_icons.get(icon_name)
             .cloned()
     }
 }

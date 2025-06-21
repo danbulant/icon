@@ -259,9 +259,17 @@ impl IconLocations {
 
     pub fn icons(self) -> Icons {
         let themes = self.resolve();
+        
+        let standalone_icons = self.standalone_icons
+            .into_iter()
+            .map(|file| {
+                let key = file.path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or(String::new());
+                (key, file)
+            })
+            .collect();
 
         Icons {
-            standalone_icons: self.standalone_icons,
+            standalone_icons,
             themes,
         }
     }
