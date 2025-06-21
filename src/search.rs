@@ -259,11 +259,16 @@ impl IconLocations {
 
     pub fn icons(self) -> Icons {
         let themes = self.resolve();
-        
-        let standalone_icons = self.standalone_icons
+
+        let standalone_icons = self
+            .standalone_icons
             .into_iter()
             .map(|file| {
-                let key = file.path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or(String::new());
+                let key = file
+                    .path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or(String::new());
                 (key, file)
             })
             .collect();
@@ -388,18 +393,17 @@ impl IconLocations {
                         continue;
                     };
 
-                    if !chain.contains(&parent_idx) {
-                        chain.push(parent_idx);
-                    }
+                    // add this parent, removing any previous occurrences
+                    chain.retain(|idx| *idx != parent_idx);
+                    chain.push(parent_idx);
                 }
             }
 
             // From the spec: "If no theme is specified, implementations are required to add the
             //                 "hicolor" theme to the inheritance tree."
             if let Some(hicolor_idx) = hicolor_idx {
-                if !chain.contains(&hicolor_idx) {
-                    chain.push(hicolor_idx);
-                }
+                chain.retain(|idx| *idx != hicolor_idx);
+                chain.push(hicolor_idx);
             }
 
             theme_chains.push(chain);

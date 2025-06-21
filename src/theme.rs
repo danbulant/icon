@@ -51,13 +51,13 @@ impl Icons {
     /// - If the icon is not found in any of the themes, the standalone icon list is checked.
     ///
     /// # Icon matching
-    /// 
+    ///
     /// This function will return an icon matching the specified size and scale exactly if it exists.
     /// Otherwise, an icon with the smallest "distance" (in icon size) is returned.
-    /// 
+    ///
     /// This will only return `None` if no icon by the specified name exists in the specified theme
     /// and its parents, and no standalone icon by the same name exists either.
-    /// 
+    ///
     pub fn find_icon(
         &self,
         icon_name: &str,
@@ -68,7 +68,7 @@ impl Icons {
         if icon_name.is_empty() {
             return None;
         }
-        
+
         let theme = self.theme(theme).or_else(|| self.theme("hicolor"))?;
         theme
             .find_icon(icon_name, size, scale)
@@ -76,14 +76,13 @@ impl Icons {
     }
 
     /// Look up a standalone icon by name.
-    /// 
+    ///
     /// "Standalone" icons are icons that live outside icon themes, residing at the root in the
     /// search directories instead.
-    /// 
-    /// These icons do not have any size or scalability information attached to them. 
+    ///
+    /// These icons do not have any size or scalability information attached to them.
     pub fn find_standalone_icon(&self, icon_name: &str) -> Option<IconFile> {
-        self.standalone_icons.get(icon_name)
-            .cloned()
+        self.standalone_icons.get(icon_name).cloned()
     }
 }
 
