@@ -414,6 +414,7 @@ mod test {
     use crate::theme::{DirectoryType, ThemeIndex};
     use std::error::Error;
     use std::path::Path;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn test_find_firefox() {
@@ -455,6 +456,9 @@ mod test {
             "lstopo",
             "signon-ui",
         ];
+        
+        let mut time_taken = Duration::ZERO;
+        let mut n = 0;
 
         for entry in
             freedesktop_desktop_entry::Iter::new(freedesktop_desktop_entry::default_paths())
@@ -475,11 +479,16 @@ mod test {
                 continue;
             }
 
+            let then = Instant::now();
+            
             // TODO: perhaps our system should expose a way to construct a "composed theme" filter,
             // for cases where you want to search a multitude (or all) themes
             let icon = icons
                 .find_icon(icon_name, 32, 1, "gnome")
                 .or_else(|| icons.find_icon(icon_name, 32, 1, "breeze"));
+            
+            time_taken += Instant::now() - then;
+            n += 1;
 
             assert!(
                 icon.is_some(),
@@ -487,6 +496,8 @@ mod test {
                 entry.path
             )
         }
+
+        println!("avg {:?} per icon", time_taken / n);
     }
 
     #[test]
