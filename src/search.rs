@@ -64,7 +64,7 @@ pub mod states {
 /// ```
 /// use icon::IconSearch;
 ///
-/// let icons = IconSearch::default()
+/// let icons = IconSearch::new()
 ///     // (optional) add directories to search
 ///     .add_directories(["/some/additional/directory/"])
 ///     // find icons and folders
@@ -92,7 +92,7 @@ impl IconSearch<Initial> {
     /// - `/usr/share/pixmaps`
     ///
     /// If you wish to add directories to those, use this function and then [`add_directories`](Self::add_directories).
-    pub fn default() -> Self {
+    pub fn new() -> Self {
         <Self as Default>::default()
     }
 
@@ -118,7 +118,7 @@ impl IconSearch<Initial> {
     /// ```
     /// use icon::IconSearch;
     ///
-    /// let dirs = IconSearch::default()
+    /// let dirs = IconSearch::new()
     ///     .add_directories(["/home/root/.icons"])
     ///     .search()
     ///     .icons();
@@ -202,8 +202,7 @@ impl IconSearch<LocationsFound> {
     ///
     /// Contained search directories are lost.
     pub fn into_icon_locations(self) -> IconLocations {
-        let icons = self.icon_locations.expect("guaranteed by type-state");
-        icons
+        self.icon_locations.expect("guaranteed by type-state")
     }
 
     // -- STAGE 3: We have icon theme candidates, so it's time to resolve them.
@@ -249,7 +248,7 @@ impl IconLocations {
     /// Prefer following the normal flow instead:
     /// ```rust
     /// use icon::IconSearch;
-    /// let search = IconSearch::default()
+    /// let search = IconSearch::new()
     ///     .search();
     ///
     /// let locations = search.into_icon_locations();
@@ -296,6 +295,7 @@ impl IconLocations {
                 return;
             }
 
+            #[allow(clippy::manual_ok_err)] // clippy doesn't see the #[cfg]
             let info = match locations.load_single_theme(name) {
                 Ok(d) => Some(d),
                 Err(_e) => {
@@ -325,12 +325,12 @@ impl IconLocations {
         // collect all required themes:
         for theme_name in theme_names {
             let theme_name = theme_name.as_ref();
-            collect_themes(theme_name.as_ref(), &self, &mut themes);
+            collect_themes(theme_name, self, &mut themes);
         }
 
         // make 100% sure we have `hicolor`, for the half-impossible edge-case of only collecting
         // themes that does not have hicolor in their inheritance tree
-        collect_themes("hicolor".as_ref(), &self, &mut themes);
+        collect_themes("hicolor".as_ref(), self, &mut themes);
         // of course, the user might be cursed and not have `hicolor` installed at all!
         // that is troubling, but we'll see that it is handled correctly below.
 
@@ -419,7 +419,7 @@ impl IconLocations {
 
                 let parents = &theme_chains[theme_idx];
                 let parents = parents
-                    .into_iter()
+                    .iter()
                     .skip(1) // the first in the chain is the theme itself, which we'll ignore—it's not a parent.
                     .copied()
                     // unwrap OK because, by the topological order, all of these parents
@@ -514,7 +514,7 @@ impl Default for IconSearch {
 
         xdg.data_home
             .into_iter()
-            .chain(xdg.data_dirs.into_iter())
+            .chain(xdg.data_dirs)
             .map(|data_dir| data_dir.join("icons"))
             .for_each(|dir| directories.push(dir));
 
@@ -532,7 +532,7 @@ mod test {
 
     #[test]
     fn test_standard_usage() {
-        let _icons = IconSearch::default()
+        let _icons = IconSearch::new()
             .add_directories(["/this/path/probably/doesnt/exist/but/who/cares/"])
             .search()
             .icons();
@@ -542,7 +542,7 @@ mod test {
 
     #[test]
     fn test_find_standard_theme_and_icon() {
-        let dirs = IconSearch::default();
+        let dirs = IconSearch::new();
 
         let locations = dirs.find_icon_locations();
 

@@ -7,6 +7,18 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Main struct to locate icon files.
+///
+/// Create this using [`Icons::new`] for the standard configuration, or use [`IconSearch`] if you
+/// wish to tune where icons can be found.
+///
+/// # Example
+///
+/// ```rust
+/// use icon::Icons;
+///
+/// Icons::new().find_icon("firefox", 32, 1, "hicolor");
+/// ```
 pub struct Icons {
     pub standalone_icons: Vec<IconFile>,
     pub themes: HashMap<OsString, Arc<Theme>>,
@@ -18,22 +30,34 @@ impl Icons {
     /// This function collects all standalone icons and icon themes on the system.
     /// To configure what directories are searched, use [`IconSearch`] instead.
     pub fn new() -> Self {
-        IconSearch::default().search().icons()
+        IconSearch::new().search().icons()
     }
 
+    /// Access a known icon theme by name
     pub fn theme(&self, theme_name: &str) -> Option<Arc<Theme>> {
         let theme_name: &OsStr = theme_name.as_ref();
         self.themes.get(theme_name).cloned()
     }
 
+    /// Like [`find_icon`], with `theme` being `"hicolor"`, which is the default icon theme.
     pub fn find_default_icon(&self, icon_name: &str, size: u32, scale: u32) -> Option<IconFile> {
         self.find_icon(icon_name, size, scale, "hicolor")
     }
 
     /// Look up an icon by name, size, scale and theme.
     ///
-    /// If the icon is not found in the theme, its parents are checked.
-    /// If no theme by the given name exists, the `"hicolor"` theme (default theme) is checked.
+    /// - If no theme by the given name exists, the `"hicolor"` theme (default theme) is used instead.
+    /// - If the icon is not found in the provided theme, its parents are checked.
+    /// - If the icon is not found in any of the themes, the standalone icon list is checked.
+    ///
+    /// # Icon matching
+    /// 
+    /// This function will return an icon matching the specified size and scale exactly if it exists.
+    /// Otherwise, an icon with the smallest "distance" (in icon size) is returned.
+    /// 
+    /// This will only return `None` if no icon by the specified name exists in the specified theme
+    /// and its parents, and no standalone icon by the same name exists either.
+    /// 
     pub fn find_icon(
         &self,
         icon_name: &str,
@@ -47,11 +71,23 @@ impl Icons {
             .or_else(|| self.find_standalone_icon(icon_name))
     }
 
+    /// Look up a standalone icon by name.
+    /// 
+    /// "Standalone" icons are icons that live outside icon themes, residing at the root in the
+    /// search directories instead.
+    /// 
+    /// These icons do not have any size or scalability information attached to them. 
     pub fn find_standalone_icon(&self, icon_name: &str) -> Option<IconFile> {
         self.standalone_icons
             .iter()
             .find(|ico| ico.path.file_stem() == Some(icon_name.as_ref()))
             .cloned()
+    }
+}
+
+impl Default for Icons {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -74,8 +110,9 @@ impl Theme {
         })
     }
 
+    // find an icon in this theme only, not checking parents.
     fn find_icon_here(&self, icon_name: &str, size: u32, scale: u32) -> Option<IconFile> {
-        const EXTENSIONS: [&'static str; 3] = ["png", "xmp", "svg"];
+        const EXTENSIONS: [&str; 3] = ["png", "xmp", "svg"];
         let file_names = EXTENSIONS.map(|ext| format!("{icon_name}.{ext}"));
 
         let base_dirs = &self.info.base_dirs;
@@ -83,7 +120,7 @@ impl Theme {
         let sub_dirs = &self.info.index.directories;
         // first, try to find an exact icon size match:
         let exact_sub_dirs = sub_dirs
-            .into_iter()
+            .iter()
             .filter(|sub_dir| sub_dir.matches_size(size, scale));
 
         for base_dir in base_dirs {
@@ -456,7 +493,7 @@ mod test {
             "lstopo",
             "signon-ui",
         ];
-        
+
         let mut time_taken = Duration::ZERO;
         let mut n = 0;
 
@@ -480,13 +517,13 @@ mod test {
             }
 
             let then = Instant::now();
-            
+
             // TODO: perhaps our system should expose a way to construct a "composed theme" filter,
             // for cases where you want to search a multitude (or all) themes
             let icon = icons
                 .find_icon(icon_name, 32, 1, "gnome")
                 .or_else(|| icons.find_icon(icon_name, 32, 1, "breeze"));
-            
+
             time_taken += Instant::now() - then;
             n += 1;
 

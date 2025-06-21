@@ -8,7 +8,7 @@
 //! let icons = icon::Icons::new();
 //!
 //! let firefox: Option<icon::IconFile> = icons.find_icon("firefox", 128, 1, "Adwaita");
-//! 
+//!
 //! println!("Firefox icon is at {:?}", firefox.unwrap().path)
 //! ```
 //!
@@ -23,29 +23,25 @@
 //!
 //! 1.  *Finding standalone icons and themes*:
 //!
-//!     Icons are found either in icon themes, or 'standalone' (outside a theme) in XDG base directories.
+//!     Icons are found either in icon themes or 'standalone' (outside a theme) in XDG base directories.
 //!     While a number of directories should always be scanned for icons, the user or application is
 //!     allowed to search additional directories as it sees fit.
 //!
 //!     [IconSearch] handles this part, and is also the main entrypoint for `icon`.
 //!
-//! 2.  *Parsing icon themes*:
+//! 2.  *Parsing and resolving icon themes*:
 //!
 //!     Each icon theme lives in a directory in the root of one or more of the "search directories".
 //!     The name of its directory is called the theme's _internal name_, and in it lies the theme's
 //!     definition, `index.theme`.
 //!
-//!     To find icons in a theme, its `index.theme` file must be parsed to understand the directory
-//!     structure within the theme itself.
-//!     This is handled by [theme::ThemeInfo].
+//!     Icon themes also can declare other icon themes from which they inherit. For that reason,
+//!     we also need to do the additional work of figuring out the inheritance tree of each theme,
+//!     removing (transitive) duplicates from the inheritance tree, etc.
 //!
-//! 3a. *Find just one icon* (oneshot):
+//! 3.  *Finding icons*:
 //!
-//!     // TODO
-//!
-//! 3b. *Find many icons*:
-//!
-//!     // TODO
+//!     Once a full picture of icons and theme 'graphs' is obtained, we can start looking up icons.
 //!
 //! # Alternative crates
 //!
