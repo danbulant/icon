@@ -139,14 +139,14 @@ impl IconSearch<Initial> {
     fn find_icon_locations(&self) -> IconLocations {
         // "Each theme is stored as subdirectories of the base directories"
 
-        let (files, dirs) = self
+        let (dirs, files) = self
             .dirs
             .iter()
             .flat_map(|base_dir| base_dir.read_dir()) // read the entries in each base dir
             .flatten() // merge all the iterators
             .flatten() // remove Err entries
             .filter_map(|entry| Some((entry.file_type().ok()?, entry))) // get file type for each entry and skip if fail
-            .partition::<Vec<_>, _>(|(ft, _)| ft.is_file());
+            .partition::<Vec<_>, _>(|(ft, _)| ft.is_dir());
 
         // icons at the top-level in a base_dir don't belong to a theme, but must still be able to be found!
         let files = files
@@ -564,4 +564,5 @@ mod test {
         let icon = locations.standalone_icon("htop").unwrap();
         assert_eq!(icon.path.file_name(), Some("htop.png".as_ref()))
     }
+    
 }
