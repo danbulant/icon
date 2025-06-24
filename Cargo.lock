@@ -72,7 +72,7 @@ dependencies = [
 
 [[package]]
 name = "icon"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "freedesktop-desktop-entry",
  "freedesktop_entry_parser",
