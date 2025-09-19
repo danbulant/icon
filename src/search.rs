@@ -146,7 +146,9 @@ impl IconSearch<Initial> {
             .flatten() // merge all the iterators
             .flatten() // remove Err entries
             .filter_map(|entry| Some((entry.file_type().ok()?, entry))) // get file type for each entry and skip if fail
-            .partition::<Vec<_>, _>(|(ft, _)| ft.is_dir());
+            .partition::<Vec<_>, _>(|(ft, entry)| {
+                ft.is_dir() || (!entry.path().extension().is_some() && ft.is_symlink())
+            });
 
         // icons at the top-level in a base_dir don't belong to a theme, but must still be able to be found!
         let files = files
@@ -564,5 +566,4 @@ mod test {
         let icon = locations.standalone_icon("htop").unwrap();
         assert_eq!(icon.path.file_name(), Some("htop.png".as_ref()))
     }
-    
 }
