@@ -1,18 +1,24 @@
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct IconFile {
     pub path: PathBuf,
+    pub name: OsString,
     pub file_type: FileType,
 }
 
 impl IconFile {
     pub fn from_path(path: &Path) -> Option<IconFile> {
         let file_type = FileType::from_path_ext(path)?;
+        let name = path.file_stem()?.to_os_string();
 
         Some(IconFile {
             path: path.to_owned(),
             file_type,
+            name,
         })
     }
 }

@@ -5,7 +5,7 @@ use freedesktop_entry_parser::low_level::{EntryIter, SectionBytes};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 /// Main struct to locate icon files.
 ///
@@ -84,6 +84,16 @@ impl Icons {
     pub fn find_standalone_icon(&self, icon_name: &str) -> Option<IconFile> {
         self.standalone_icons.get(icon_name).cloned()
     }
+
+    /// Reset all caches in all loaded themes.
+    ///
+    /// This is useful if you know that icons have changed on disk and want to force a reload,
+    /// or when benchmarking.
+    pub fn reset_cache(&self) {
+        for theme in self.themes.values() {
+            theme.reset_cache();
+        }
+    }
 }
 
 impl Default for Icons {
@@ -111,11 +121,12 @@ impl Theme {
         })
     }
 
+    pub fn reset_cache(&self) {
+        self.info.index.reset_cache();
+    }
+
     // find an icon in this theme only, not checking parents.
     fn find_icon_here(&self, icon_name: &str, size: u32, scale: u32) -> Option<IconFile> {
-        const EXTENSIONS: [&str; 3] = ["png", "xmp", "svg"];
-        let file_names = EXTENSIONS.map(|ext| format!("{icon_name}.{ext}"));
-
         let base_dirs = &self.info.base_dirs;
 
         let sub_dirs = &self.info.index.directories;
@@ -126,17 +137,9 @@ impl Theme {
 
         for base_dir in base_dirs {
             for sub_dir in exact_sub_dirs.clone() {
-                for file_name in &file_names {
-                    let path = base_dir
-                        .join(sub_dir.directory_name.as_str())
-                        .join(file_name);
-
-                    if path.exists() {
-                        if let Some(file) = IconFile::from_path(&path) {
-                            // exact match!
-                            return Some(file);
-                        }
-                    }
+                if let Some(file) = sub_dir.lookup_icon(base_dir, icon_name) {
+                    // exact match!
+                    return Some(file);
                 }
             }
         }
@@ -152,16 +155,9 @@ impl Theme {
                 let distance = sub_dir.size_distance(size, scale);
 
                 if distance < min_dist {
-                    for file_name in &file_names {
-                        let path = base_dir
-                            .join(sub_dir.directory_name.as_str())
-                            .join(file_name);
-                        if path.exists() {
-                            if let Some(file) = IconFile::from_path(&path) {
-                                min_dist = distance;
-                                best_icon = Some(file);
-                            }
-                        }
+                    if let Some(file) = sub_dir.lookup_icon(base_dir, icon_name) {
+                        min_dist = distance;
+                        best_icon = Some(file);
                     }
                 }
             }
@@ -231,6 +227,12 @@ impl ThemeIndex {
         let index = ThemeIndex::parse(&bytes).map_err(std::io::Error::other)?;
 
         Ok(index)
+    }
+
+    pub fn reset_cache(&self) {
+        for dir in &self.directories {
+            dir.reset_cache();
+        }
     }
 
     pub fn parse(bytes: &[u8]) -> Result<Self, ThemeParseError> {
@@ -310,6 +312,9 @@ pub struct DirectoryIndex {
     pub max_size: u32,
     pub min_size: u32,
     pub threshold: u32,
+    /// Used as cache during icon lookups
+    pub known_icons: RwLock<Vec<IconFile>>,
+    pub known_basedirs: RwLock<Vec<PathBuf>>,
     // pub additional_values: HashMap<String, String>,
 }
 
@@ -353,7 +358,41 @@ impl DirectoryIndex {
             max_size,
             min_size,
             threshold,
+            known_icons: Default::default(),
+            known_basedirs: Default::default(),
         })
+    }
+
+    fn reset_cache(&self) {
+        self.known_icons.write().unwrap().clear();
+        self.known_basedirs.write().unwrap().clear();
+    }
+
+    fn load_cache(&self, base_dir: &PathBuf) {
+        if self.known_basedirs.read().unwrap().contains(base_dir) {
+            return; // already loaded for this base dir
+        }
+
+        self.known_basedirs.write().unwrap().push(base_dir.clone());
+
+        let dir = base_dir.join(&self.directory_name);
+        if dir.is_dir() {
+            let icons = &mut *self.known_icons.write().unwrap();
+            for entry in dir.read_dir().unwrap() {
+                let entry = entry.unwrap();
+                if entry.file_type().unwrap().is_file() {
+                    if let Some(icon) = IconFile::from_path(&entry.path()) {
+                        icons.push(icon);
+                    }
+                }
+            }
+        }
+    }
+
+    fn lookup_icon(&self, base_dir: &PathBuf, icon_name: &str) -> Option<IconFile> {
+        self.load_cache(base_dir);
+        let icons = self.known_icons.read().unwrap();
+        icons.iter().find(|ico| ico.name == icon_name).cloned()
     }
 
     fn size_distance(&self, icon_size: u32, icon_scale: u32) -> u32 {
